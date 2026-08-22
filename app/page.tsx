@@ -587,11 +587,6 @@ export default function Page() {
 
             <footer className="mt-6 space-y-1 border-t border-line pt-4 text-[11px] leading-relaxed text-ink-dim">
               <p>
-                สูตรตามไฟล์ Excel · Diff = ราคา 22:30 − Open · % = Diff/Open × 100 · OK เมื่อ %
-                อยู่ระหว่าง +{store.thresholds.min}% ถึง +{store.thresholds.max}% (นับเฉพาะขาขึ้น
-                ราคาลงเป็นไม่ซื้อ)
-              </p>
-              <p>
                 ลิสต์หุ้นแยกตามวันซื้อขาย · ผลของวันที่ผ่านไปแล้วถูกบันทึกไว้ในเครื่อง เปลี่ยนเกณฑ์แล้วคำนวณใหม่ให้ทุกวัน
               </p>
               <p>ป้าย LIVE = ยังไม่ถึง 22:30 น. ค่ายังขยับได้ ผลจะนิ่งเมื่อพ้นเวลาแล้ว</p>
