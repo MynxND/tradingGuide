@@ -48,7 +48,8 @@ export function twelveData(apiKey: string): Provider {
 
       charge(symbols.length);
       const url = `${BASE}/quote?symbol=${symbols.join(',')}&apikey=${apiKey}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      // แชร์ผลข้าม request/instance ต้นทางถูกเรียกครั้งเดียวต่อรอบ 60 วิ
+      const res = await fetch(url, { next: { revalidate: 60 } });
       if (!res.ok) throw new Error(`Twelve Data ตอบ ${res.status}`);
       const json = await res.json();
 
@@ -77,7 +78,8 @@ export function twelveData(apiKey: string): Provider {
       const url =
         `${BASE}/time_series?symbol=${encodeURIComponent(symbol)}` +
         `&interval=1min&outputsize=400&timezone=America/New_York&apikey=${apiKey}`;
-      const res = await fetch(url, { cache: 'no-store' });
+      // ราคา ณ 11:30 นิ่งแล้วหลังพ้นเวลา แคชได้นาน
+      const res = await fetch(url, { next: { revalidate: 300 } });
       if (!res.ok) throw new Error(`Twelve Data ตอบ ${res.status}`);
       const json = await res.json();
       if (json?.status === 'error') throw new Error(json.message ?? 'Twelve Data error');

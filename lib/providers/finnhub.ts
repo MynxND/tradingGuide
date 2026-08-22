@@ -10,6 +10,16 @@ const BASE = 'https://finnhub.io/api/v1';
 const CALLS_PER_MINUTE = 55; // เผื่อ buffer จาก 60 ไว้ให้ profile2 และการกดรีเฟรชมือ
 const spent: number[] = [];
 
+/** อายุ cache ของราคาสด — ผู้ใช้ทุกคนในช่วงนี้อ่านผลเดียวกัน ไม่ยิงต้นทางซ้ำ */
+export const LIVE_TTL_S = 20;
+
+/**
+ * URL ที่ยิงไปแล้วเมื่อไร
+ * ระหว่างที่ยังอยู่ใน cache window การขอซ้ำจะไม่ถึงต้นทาง จึงต้องไม่คิดโควตาซ้ำ
+ * ไม่งั้นผู้ใช้หลายคน (หรือกด refresh รัว ๆ) จะทำให้ ledger เต็มทั้งที่ไม่ได้ยิงจริง
+ */
+const chargedAt = new Map<string, number>();
+
 function allowance() {
   const cutoff = Date.now() - 60_000;
   while (spent.length > 0 && spent[0] < cutoff) spent.shift();
@@ -19,6 +29,15 @@ function allowance() {
 function charge(n = 1) {
   const now = Date.now();
   for (let i = 0; i < n; i++) spent.push(now);
+}
+
+/** คิดโควตาเฉพาะครั้งที่คาดว่าจะทะลุ cache ไปถึงต้นทางจริง */
+function chargeIfUpstream(url: string, ttlMs: number) {
+  const last = chargedAt.get(url);
+  if (last != null && Date.now() - last < ttlMs) return false;
+  chargedAt.set(url, Date.now());
+  charge(1);
+  return true;
 }
 
 /** ให้หน้าเว็ปรู้ว่าเหลือโควตาเท่าไรในนาทีนี้ */
@@ -33,8 +52,12 @@ export function finnhubAllowance() {
  */
 export function finnhub(apiKey: string): Provider {
   async function one(symbol: string): Promise<LivePrice | null> {
-    const res = await fetch(`${BASE}/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`, {
-      cache: 'no-store',
+    const url = `${BASE}/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
+    chargeIfUpstream(url, LIVE_TTL_S * 1000);
+    const res = await fetch(url, {
+      // แชร์ผลข้าม request และข้าม instance: มีผู้ใช้ 100 คนดูหุ้นตัวเดียวกัน
+      // ต้นทางก็ถูกเรียกครั้งเดียวต่อ 20 วิ
+      next: { revalidate: LIVE_TTL_S },
     });
     if (!res.ok) throw new Error(res.status === 429 ? 'Finnhub เกินโควตา (429)' : `Finnhub ตอบ ${res.status}`);
     const q = await res.json();
@@ -73,7 +96,6 @@ export function finnhub(apiKey: string): Provider {
       const attempted: string[] = [];
       for (let i = 0; i < symbols.length; i += 5) {
         const chunk = symbols.slice(i, i + 5);
-        charge(chunk.length);
         const results = await Promise.allSettled(chunk.map(one));
         results.forEach((r, idx) => {
           if (r.status === 'fulfilled') {
@@ -94,9 +116,11 @@ export function finnhub(apiKey: string): Provider {
 
     async fetchName(symbol) {
       if (allowance() < 1) return null;
-      charge(1);
-      const res = await fetch(`${BASE}/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`, {
-        cache: 'no-store',
+      const url = `${BASE}/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
+      chargeIfUpstream(url, 7 * 24 * 3600_000);
+      const res = await fetch(url, {
+        // ชื่อบริษัทไม่เปลี่ยนรายวัน แคชไว้เป็นสัปดาห์
+        next: { revalidate: 604_800 },
       });
       if (!res.ok) throw new Error(`Finnhub ตอบ ${res.status}`);
       const p = await res.json();

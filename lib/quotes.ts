@@ -40,6 +40,15 @@ const WINDOW_END_PER_CYCLE = 2;
 
 type Stored = { price: LivePrice; at: number };
 
+/**
+ * งานดึงราคาที่กำลังวิ่งอยู่ แยกตามหุ้น
+ *
+ * ถ้าไม่มีตัวนี้ ผู้ใช้ 10 คนที่เข้ามาพร้อมกันจะเห็น store ว่างเหมือนกันหมด
+ * แล้วยิงต้นทางคนละชุด (cache stampede) — วัดแล้วกิน quota 19 ครั้งสำหรับ 3 หุ้น
+ * เมื่อมี single-flight คนแรกเป็นคนยิง คนที่เหลือรอผลเดียวกัน
+ */
+const inflight = new Map<string, Promise<void>>();
+
 let storeDay: string | null = null;
 const liveStore = new Map<string, Stored>();
 /** คีย์ "YYYY-MM-DD:SYMBOL" */
@@ -77,25 +86,37 @@ export async function getQuotes(symbols: string[]): Promise<QuotesResult> {
     .sort((a, b) => (liveStore.get(a)?.at ?? 0) - (liveStore.get(b)?.at ?? 0))
     .slice(0, liveProvider.maxPerCycle);
 
-  if (stale.length > 0) {
-    try {
-      const { prices, attempted } = await liveProvider.fetchLive(stale);
-      for (const [symbol, price] of prices) {
-        liveStore.set(symbol, { price, at: Date.now() });
-        misses.delete(symbol);
-        if (price.name) nameCache.set(symbol, price.name);
+  // ตัวที่มีคนอื่นกำลังดึงอยู่แล้ว ให้รอผลของเขา ไม่ยิงซ้ำ
+  const waitFor = stale.filter((s) => inflight.has(s)).map((s) => inflight.get(s)!);
+  const toFetch = stale.filter((s) => !inflight.has(s));
+
+  if (toFetch.length > 0) {
+    const job = (async () => {
+      try {
+        const { prices, attempted } = await liveProvider.fetchLive(toFetch);
+        for (const [symbol, price] of prices) {
+          liveStore.set(symbol, { price, at: Date.now() });
+          misses.delete(symbol);
+          if (price.name) nameCache.set(symbol, price.name);
+        }
+        // นับเป็น "ไม่มีข้อมูล" ได้เฉพาะตัวที่ยิงถามไปจริงแล้วไม่ได้คำตอบ
+        // ตัวที่ถูกตัดออกเพราะโควตาไม่พอจะไม่อยู่ใน attempted
+        for (const symbol of attempted) {
+          if (prices.has(symbol)) continue;
+          const prev = misses.get(symbol)?.count ?? 0;
+          misses.set(symbol, { count: prev + 1, until: Date.now() + MISS_BACKOFF_MS });
+        }
+      } catch (err) {
+        warning = err instanceof Error ? err.message : 'ดึงราคาสดไม่สำเร็จ';
+      } finally {
+        for (const symbol of toFetch) inflight.delete(symbol);
       }
-      // นับเป็น "ไม่มีข้อมูล" ได้เฉพาะตัวที่ยิงถามไปจริงแล้วไม่ได้คำตอบ
-      // ตัวที่ถูกตัดออกเพราะโควตาไม่พอจะไม่อยู่ใน attempted
-      for (const symbol of attempted) {
-        if (prices.has(symbol)) continue;
-        const prev = misses.get(symbol)?.count ?? 0;
-        misses.set(symbol, { count: prev + 1, until: Date.now() + MISS_BACKOFF_MS });
-      }
-    } catch (err) {
-      warning = err instanceof Error ? err.message : 'ดึงราคาสดไม่สำเร็จ';
-    }
+    })();
+    for (const symbol of toFetch) inflight.set(symbol, job);
+    waitFor.push(job);
   }
+
+  if (waitFor.length > 0) await Promise.all(waitFor);
 
   // ราคาปิดหน้าต่างดึงครั้งเดียวต่อหุ้นต่อวัน และเฉพาะเมื่อเลย 11:30 ET แล้ว
   if (state === 'after') {

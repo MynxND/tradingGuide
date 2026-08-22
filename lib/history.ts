@@ -24,7 +24,9 @@ async function fetchOne(symbol: string, date: string, apiKey: string): Promise<H
     `&start_date=${date}%2009:29:00&end_date=${date}%2011:31:00` +
     `&timezone=America/New_York&apikey=${apiKey}`;
 
-  const res = await fetch(url, { cache: 'no-store' });
+  // ราคาย้อนหลังของวันที่ปิดไปแล้วไม่เปลี่ยนอีก แคชยาวได้เลย
+  // ผู้ใช้คนที่สองที่ขอวันเดียวกันจะไม่กิน quota ซ้ำ
+  const res = await fetch(url, { next: { revalidate: 2_592_000 } });
   if (!res.ok) throw new Error(`Twelve Data ตอบ ${res.status}`);
   const json = await res.json();
   if (json?.status === 'error') {

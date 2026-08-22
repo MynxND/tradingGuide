@@ -10,7 +10,7 @@ async function chart(symbol: string) {
     `?interval=1m&range=1d&includePrePost=false`;
   const res = await fetch(url, {
     headers: { 'User-Agent': UA, Accept: 'application/json' },
-    cache: 'no-store',
+    next: { revalidate: 60 },
   });
   if (!res.ok) {
     throw new Error(
