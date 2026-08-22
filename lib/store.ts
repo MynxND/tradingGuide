@@ -95,6 +95,23 @@ export function saveStore(store: Store) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
 }
 
+/** ตรวจว่า state ที่ได้จาก server ใช้งานได้จริง ก่อนเอาไปแทนของในเครื่อง */
+export function normalizeStore(raw: unknown, today: string): Store | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Partial<Store>;
+  if (!r.lists || typeof r.lists !== 'object') return null;
+
+  const base = emptyStore(today);
+  return {
+    v: 2,
+    lists: Object.keys(r.lists).length > 0 ? r.lists : base.lists,
+    snapshots: r.snapshots ?? {},
+    thresholds: r.thresholds ?? base.thresholds,
+    onlyOk: typeof r.onlyOk === 'boolean' ? r.onlyOk : false,
+    journal: r.journal ?? {},
+  };
+}
+
 /** วันที่ที่มีลิสต์หรือมีผลบันทึกไว้ เรียงใหม่ก่อน */
 export function savedDates(store: Store) {
   return [...new Set([...Object.keys(store.lists), ...Object.keys(store.snapshots)])].sort((a, b) =>

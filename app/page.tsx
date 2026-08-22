@@ -8,12 +8,14 @@ import {
   emptyStore,
   journalKey,
   loadStore,
+  normalizeStore,
   saveStore,
   savedDates,
   type JournalEntry,
   type RawQuote,
   type Store,
 } from '@/lib/store';
+import { WORKSPACE_ID } from '@/lib/workspace';
 import { evaluate, windowState, type Decision } from '@/lib/strategy';
 import { DateBar } from './DateBar';
 import { ExportButton, type ExportRow } from './ExportButton';
@@ -69,23 +71,83 @@ export default function Page() {
   const [editing, setEditing] = useState<string | null>(null);
 
   const [backfill, setBackfill] = useState<{ pending: number; error?: string } | null>(null);
+  /** local = เก็บในเบราว์เซอร์เท่านั้น, redis = sync ข้ามเครื่อง */
+  const [storage, setStorage] = useState<'local' | 'redis' | 'error'>('local');
+  const [syncing, setSyncing] = useState(false);
   const abort = useRef<AbortController | null>(null);
   /** เก็บวันปัจจุบันไว้ใน ref ด้วย เพื่อให้ interval เทียบได้โดยไม่ค้างค่าเก่า */
   const todayRef = useRef(today);
 
+  /**
+   * โหลด state: เอาของบน server เป็นหลัก (sync ข้ามเครื่อง)
+   * ถ้า server ไม่มีหรือล่ม ใช้ของในเบราว์เซอร์ไปก่อน จะได้ยังใช้งานได้
+   */
   useEffect(() => {
     const t = etDate();
     todayRef.current = t;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage อ่านได้แค่ฝั่ง client
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- วันที่และ localStorage อ่านได้แค่ฝั่ง client
     setToday(t);
-    setStore(loadStore(t));
     setDate(t);
-    setHydrated(true);
+    setStore(loadStore(t));
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/state?w=${WORKSPACE_ID}`, { cache: 'no-store' });
+        const json = await res.json();
+        setStorage(json.storage === 'redis' ? 'redis' : json.storage === 'error' ? 'error' : 'local');
+        const remote = normalizeStore(json.state, t);
+        if (remote) setStore(remote);
+      } catch {
+        setStorage('error');
+      } finally {
+        setHydrated(true);
+      }
+    })();
   }, []);
 
+  // เก็บลงเบราว์เซอร์ทุกครั้ง ใช้เป็นสำเนาออฟไลน์
   useEffect(() => {
     if (hydrated) saveStore(store);
   }, [hydrated, store]);
+
+  /**
+   * กลับมาที่แท็บนี้อีกครั้ง ให้ดึง state ใหม่จาก server ก่อน
+   * แท็บที่เปิดค้างไว้นาน ๆ ถืออะไรเก่า ๆ อยู่ ถ้าไม่ดึงใหม่แล้วเผลอแก้อะไร
+   * มันจะเอาของเก่าไปทับงานที่ทำบนอีกเครื่อง
+   */
+  useEffect(() => {
+    if (!hydrated || storage !== 'redis') return;
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      void fetch(`/api/state?w=${WORKSPACE_ID}`, { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((json) => {
+          const remote = normalizeStore(json.state, todayRef.current);
+          if (remote) setStore(remote);
+        })
+        .catch(() => {
+          /* ดึงไม่ได้ก็ใช้ของในมือต่อไป */
+        });
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [hydrated, storage]);
+
+  // ส่งขึ้น server แบบหน่วงไว้ ไม่ยิงทุกการกด
+  useEffect(() => {
+    if (!hydrated || storage !== 'redis') return;
+    const id = setTimeout(() => {
+      setSyncing(true);
+      void fetch(`/api/state?w=${WORKSPACE_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(store),
+      })
+        .catch(() => setStorage('error'))
+        .finally(() => setSyncing(false));
+    }, 800);
+    return () => clearTimeout(id);
+  }, [hydrated, store, storage]);
 
   const symbols = useMemo(() => store.lists[date] ?? [], [store.lists, date]);
   const isToday = date === today;
@@ -389,6 +451,7 @@ export default function Page() {
                 </div>
               </div>
             )}
+            <SyncBadge storage={storage} syncing={syncing} />
           </div>
         </div>
 
@@ -686,6 +749,27 @@ export default function Page() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function SyncBadge({
+  storage,
+  syncing,
+}: {
+  storage: 'local' | 'redis' | 'error';
+  syncing: boolean;
+}) {
+  const map = {
+    redis: [syncing ? 'กำลังบันทึก…' : 'sync แล้ว', 'text-up', 'bg-up'],
+    local: ['เก็บในเครื่องนี้', 'text-ink-dim', 'bg-ink-dim'],
+    error: ['sync ไม่ได้', 'text-warn', 'bg-warn'],
+  } as const;
+  const [label, text, dot] = map[storage];
+  return (
+    <div className="flex items-center gap-1.5" title={label}>
+      <span className={`size-1.5 rounded-full ${dot} ${syncing ? 'animate-pulse' : ''}`} />
+      <span className={`hidden text-[10px] lg:inline ${text}`}>{label}</span>
     </div>
   );
 }
