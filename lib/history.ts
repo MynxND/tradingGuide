@@ -5,6 +5,8 @@ export type HistoryQuote = {
   symbol: string;
   open: number | null;
   windowEnd: number | null;
+  /** ราคาสูงสุดในช่วง 09:30–11:30 ET ของวันนั้น */
+  windowHigh: number | null;
   name: string | null;
 };
 
@@ -35,7 +37,8 @@ async function fetchOne(symbol: string, date: string, apiKey: string): Promise<H
     throw new Error(json.message ?? 'Twelve Data error');
   }
 
-  const values: Array<{ datetime: string; open: string; close: string }> = json?.values ?? [];
+  const values: Array<{ datetime: string; open: string; close: string; high: string }> =
+    json?.values ?? [];
   if (values.length === 0) return null;
 
   const at = (minute: number) => {
@@ -45,16 +48,23 @@ async function fetchOne(symbol: string, date: string, apiKey: string): Promise<H
   };
 
   const openBar = at(SESSION_START_MIN);
-  const endBar = at(SESSION_END_MIN);
+  // หุ้นสภาพคล่องต่ำอาจไม่มีแท่งนาที 11:30 — ถอยไปใช้แท่งล่าสุดที่ไม่เกินเวลานั้น
+  const endBar = at(SESSION_END_MIN) ?? values.at(0);
   const num = (v: string | undefined) => {
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   };
 
+  const highs = values
+    .map((v) => num(v.high))
+    .filter((n): n is number => n != null);
+
   return {
     symbol,
     open: num(openBar?.open),
     windowEnd: num(endBar?.open) ?? num(endBar?.close),
+    // ช่วงที่ขอมาคือ 09:29–11:31 อยู่แล้ว high ของชุดนี้จึงเป็น high ของช่วงพอดี
+    windowHigh: highs.length > 0 ? Math.max(...highs) : null,
     name: null,
   };
 }
@@ -67,8 +77,14 @@ export async function getHistory(date: string, symbols: string[]) {
   if (provider.name === 'mock' || !apiKey) {
     const quotes: HistoryQuote[] = [];
     for (const symbol of symbols) {
-      const windowEnd = await provider.fetchWindowEnd(symbol).catch(() => null);
-      quotes.push({ symbol, open: windowEnd, windowEnd, name: null });
+      const snap = await provider.fetchWindowSnapshot(symbol).catch(() => null);
+      quotes.push({
+        symbol,
+        open: snap?.end ?? null,
+        windowEnd: snap?.end ?? null,
+        windowHigh: snap?.high ?? null,
+        name: null,
+      });
     }
     return { quotes, pending: 0, provider: provider.name };
   }

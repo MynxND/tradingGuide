@@ -110,7 +110,7 @@ export function finnhub(apiKey: string): Provider {
       return { prices: out, attempted };
     },
 
-    async fetchWindowEnd() {
+    async fetchWindowSnapshot() {
       return null; // ต้องใช้ candle ซึ่งเป็นแพ็กเกจจ่ายเงิน
     },
 

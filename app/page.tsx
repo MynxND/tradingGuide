@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SymbolQuote } from '@/lib/quotes';
 import { etDate, formatThaiDate, isWeekend } from '@/lib/session-date';
+import { buildStats } from '@/lib/stats';
 import {
   emptyStore,
+  journalKey,
   loadStore,
   saveStore,
   savedDates,
+  type JournalEntry,
   type RawQuote,
   type Store,
 } from '@/lib/store';
@@ -15,6 +18,8 @@ import { evaluate, windowState, type Decision } from '@/lib/strategy';
 import { DateBar } from './DateBar';
 import { ExportButton, type ExportRow } from './ExportButton';
 import { GainersTab } from './GainersTab';
+import { JournalEditor } from './JournalEditor';
+import { StatsTab } from './StatsTab';
 import { SymbolPicker } from './SymbolPicker';
 import {
   MagnitudeBar,
@@ -35,6 +40,8 @@ type Row = RawQuote & {
   last: number | null;
   diff: number | null;
   pct: number | null;
+  /** % จาก Open ถึง High ในช่วง — บอกว่าเคยขึ้นไปถึงไหนก่อนจะจบที่ 22:30 */
+  highPct: number | null;
   decision: Decision;
   provisional: boolean;
   error?: string;
@@ -57,7 +64,9 @@ export default function Page() {
   const [warning, setWarning] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState<string[]>([]);
   const [refreshMs, setRefreshMs] = useState(FALLBACK_REFRESH_MS);
-  const [tab, setTab] = useState<'formula' | 'gainers'>('formula');
+  const [tab, setTab] = useState<'formula' | 'gainers' | 'stats'>('formula');
+  /** หุ้นที่กางช่องบันทึกผลอยู่ */
+  const [editing, setEditing] = useState<string | null>(null);
 
   const [backfill, setBackfill] = useState<{ pending: number; error?: string } | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -154,6 +163,7 @@ export default function Page() {
       name: q.name,
       open: q.open,
       windowEnd: q.windowEnd,
+      windowHigh: q.windowHigh,
       last: q.last,
       error: q.error,
     }));
@@ -165,7 +175,11 @@ export default function Page() {
         const end = r.windowEnd ?? r.last;
         const provisional = r.windowEnd == null;
         const ev = evaluate(r.open, end, store.thresholds, provisional);
-        return { ...r, diff: ev.diff, pct: ev.pct, decision: ev.decision, provisional };
+        const highPct =
+          r.open != null && r.open !== 0 && r.windowHigh != null
+            ? ((r.windowHigh - r.open) / r.open) * 100
+            : null;
+        return { ...r, diff: ev.diff, pct: ev.pct, highPct, decision: ev.decision, provisional };
       }),
     [raws, store.thresholds],
   );
@@ -198,6 +212,7 @@ export default function Page() {
         name: q.name,
         open: q.open,
         windowEnd: q.windowEnd ?? q.last,
+        windowHigh: q.windowHigh,
       }));
       if (JSON.stringify(prev.snapshots[today]) === JSON.stringify(next)) return prev;
       return { ...prev, snapshots: { ...prev.snapshots, [today]: next } };
@@ -225,6 +240,27 @@ export default function Page() {
   const removeSymbol = useCallback(
     (symbol: string) => setSymbolsForDate((prev) => prev.filter((s) => s !== symbol)),
     [setSymbolsForDate],
+  );
+
+  const saveJournal = useCallback(
+    (symbol: string, entry: JournalEntry) => {
+      setStore((prev) => ({
+        ...prev,
+        journal: { ...prev.journal, [journalKey(date, symbol)]: entry },
+      }));
+    },
+    [date],
+  );
+
+  const clearJournal = useCallback(
+    (symbol: string) => {
+      setStore((prev) => {
+        const next = { ...prev.journal };
+        delete next[journalKey(date, symbol)];
+        return { ...prev, journal: next };
+      });
+    },
+    [date],
   );
 
   const copyFromDate = useCallback(
@@ -276,6 +312,7 @@ export default function Page() {
             name: r.name,
             open: r.open,
             windowEnd: r.windowEnd,
+            windowHigh: r.windowHigh ?? null,
             diff: ev.diff,
             pct: ev.pct,
             decision: ev.decision === 'WAIT' ? '-' : ev.decision,
@@ -289,6 +326,7 @@ export default function Page() {
               name: r.name,
               open: r.open,
               windowEnd: r.windowEnd ?? r.last,
+              windowHigh: r.windowHigh,
             }))
           : (snapshot ?? []);
         return [{ date, rows: toRows(list) }];
@@ -305,6 +343,7 @@ export default function Page() {
                 name: r.name,
                 open: r.open,
                 windowEnd: r.windowEnd ?? r.last,
+                windowHigh: r.windowHigh,
               })),
             ),
           };
@@ -315,6 +354,7 @@ export default function Page() {
     [date, isToday, raws, snapshot, store, today],
   );
 
+  const stats = useMemo(() => buildStats(store, store.thresholds), [store]);
   const okCount = rows.filter((r) => r.decision === 'OK').length;
   const errors = rows.filter((r) => r.error);
   const dates = savedDates(store);
@@ -357,6 +397,7 @@ export default function Page() {
             [
               ['formula', 'สูตรของฉัน'],
               ['gainers', 'ปิดบวกสูงสุด'],
+              ['stats', 'สถิติ'],
             ] as const
           ).map(([key, label]) => (
             <button
@@ -377,6 +418,16 @@ export default function Page() {
 
       <main className="mx-auto max-w-[1400px] px-4 pb-16">
         {tab === 'gainers' && <GainersTab existing={symbols} onAdd={addSymbols} />}
+
+        {tab === 'stats' && (
+          <StatsTab
+            stats={stats}
+            onOpenDate={(d) => {
+              setDate(d);
+              setTab('formula');
+            }}
+          />
+        )}
 
         {tab === 'formula' && (
           <>
@@ -499,10 +550,12 @@ export default function Page() {
                     <th className="col-head px-3 py-2 text-left">สัญลักษณ์</th>
                     <th className="col-head px-3 py-2 text-right">Open 20:30</th>
                     <th className="col-head px-3 py-2 text-right">ราคา 22:30</th>
+                    <th className="col-head px-3 py-2 text-right">High ช่วง</th>
                     <th className="col-head px-3 py-2 text-right">เปลี่ยนแปลง</th>
                     <th className="col-head px-3 py-2 text-right">%</th>
                     <th className="col-head w-28 px-3 py-2 text-left">ความแรง</th>
                     <th className="col-head px-3 py-2 text-center">ผล</th>
+                    <th className="col-head px-3 py-2 text-right">บันทึก</th>
                     <th className="w-8" />
                   </tr>
                 </thead>
@@ -527,6 +580,14 @@ export default function Page() {
                           <span className="ml-1.5 align-middle text-[10px] text-ink-dim">LIVE</span>
                         )}
                       </td>
+                      <td className="num px-3 py-2 text-right text-[13px]">
+                        <span className="text-ink">{fmtPrice(r.windowHigh ?? null)}</span>
+                        {r.highPct != null && (
+                          <span className="ml-1.5 text-[11px] text-ink-dim">
+                            {fmtSigned(r.highPct, 1)}%
+                          </span>
+                        )}
+                      </td>
                       <td className={`num px-3 py-2 text-right text-[13px] ${toneClass(r.diff)}`}>
                         {fmtSigned(r.diff, priceDigits(r.open ?? r.diff ?? 1))}
                       </td>
@@ -545,6 +606,13 @@ export default function Page() {
                       <td className="px-3 py-2 text-center">
                         <DecisionPill decision={r.decision} />
                       </td>
+                      <td className="px-3 py-2 text-right">
+                        <JournalCell
+                          entry={store.journal[journalKey(date, r.symbol)]}
+                          active={editing === r.symbol}
+                          onClick={() => setEditing(editing === r.symbol ? null : r.symbol)}
+                        />
+                      </td>
                       <td className="pr-3 text-right">
                         <button
                           onClick={() => removeSymbol(r.symbol)}
@@ -557,9 +625,32 @@ export default function Page() {
                       </td>
                     </tr>
                   ))}
+                  {sorted.map((r) =>
+                    editing === r.symbol ? (
+                      <tr key={`${r.symbol}-journal`}>
+                        <td colSpan={10} className="p-0">
+                          <JournalEditor
+                            key={`${date}-${r.symbol}`}
+                            symbol={r.symbol}
+                            suggestedEntry={r.windowEnd ?? r.last}
+                            value={store.journal[journalKey(date, r.symbol)]}
+                            onSave={(e) => {
+                              saveJournal(r.symbol, e);
+                              setEditing(null);
+                            }}
+                            onClear={() => {
+                              clearJournal(r.symbol);
+                              setEditing(null);
+                            }}
+                            onClose={() => setEditing(null)}
+                          />
+                        </td>
+                      </tr>
+                    ) : null,
+                  )}
                   {sorted.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-[13px] text-ink-dim">
+                      <td colSpan={10} className="py-12 text-center text-[13px] text-ink-dim">
                         {loading && isToday ? 'กำลังโหลดข้อมูล…' : 'ยังไม่มีข้อมูลของวันนี้'}
                       </td>
                     </tr>
@@ -596,6 +687,49 @@ export default function Page() {
         )}
       </main>
     </div>
+  );
+}
+
+function JournalCell({
+  entry,
+  active,
+  onClick,
+}: {
+  entry: JournalEntry | undefined;
+  active: boolean;
+  onClick(): void;
+}) {
+  const realized =
+    entry?.entry != null && entry.entry !== 0 && entry.exit != null
+      ? ((entry.exit - entry.entry) / entry.entry) * 100
+      : null;
+
+  const label =
+    realized != null
+      ? `${fmtSigned(realized, 1)}%`
+      : entry?.bought
+        ? 'ถือ'
+        : entry
+          ? 'ไม่ซื้อ'
+          : '+';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="บันทึกผลจริง"
+      className={`num rounded px-2 py-1 text-[11px] font-semibold transition-colors ${
+        active
+          ? 'bg-accent text-white'
+          : realized != null
+            ? `bg-hover ${toneClass(realized)}`
+            : entry
+              ? 'bg-hover text-ink'
+              : 'text-ink-dim hover:bg-hover hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -695,6 +829,14 @@ function MobileRow({
           <span className="num ml-1 text-ink-bright">{fmtPrice(row.windowEnd ?? row.last)}</span>
           {row.provisional && row.last != null && <span className="ml-1 text-[10px]">LIVE</span>}
         </span>
+        {row.windowHigh != null && (
+          <span>
+            High <span className="num ml-1 text-ink">{fmtPrice(row.windowHigh)}</span>
+            {row.highPct != null && (
+              <span className="num ml-1 text-[10px]">{fmtSigned(row.highPct, 1)}%</span>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );

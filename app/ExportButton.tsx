@@ -8,6 +8,7 @@ export type ExportRow = {
   name?: string | null;
   open: number | null;
   windowEnd: number | null;
+  windowHigh?: number | null;
   diff: number | null;
   pct: number | null;
   decision: string;

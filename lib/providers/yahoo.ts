@@ -61,18 +61,24 @@ export const yahoo: Provider = {
     return { prices: out, attempted };
   },
 
-  async fetchWindowEnd(symbol) {
+  async fetchWindowSnapshot(symbol) {
     const result = await chart(symbol);
     const ts: number[] = result.timestamp ?? [];
     const q = result.indicators?.quote?.[0] ?? {};
+    let end: number | null = null;
     let fallback: number | null = null;
+    let high: number | null = null;
+
     for (let i = 0; i < ts.length; i++) {
       const minute = etMinuteOfDay(ts[i]);
-      if (minute === SESSION_END_MIN) return q.open?.[i] ?? q.close?.[i] ?? null;
-      if (minute >= SESSION_START_MIN && minute < SESSION_END_MIN && q.close?.[i] != null) {
-        fallback = q.close[i];
-      }
+      if (minute < SESSION_START_MIN || minute > SESSION_END_MIN) continue;
+
+      const barHigh = q.high?.[i];
+      if (typeof barHigh === 'number') high = high === null ? barHigh : Math.max(high, barHigh);
+
+      if (minute === SESSION_END_MIN && end === null) end = q.open?.[i] ?? q.close?.[i] ?? null;
+      else if (minute < SESSION_END_MIN && q.close?.[i] != null) fallback = q.close[i];
     }
-    return fallback;
+    return { end: end ?? fallback, high };
   },
 };

@@ -10,6 +10,13 @@ export type LivePrice = {
   dayHigh: number | null;
 };
 
+export type WindowSnapshot = {
+  /** ราคา ณ 11:30 ET */
+  end: number | null;
+  /** ราคาสูงสุดระหว่าง 09:30–11:30 ET */
+  high: number | null;
+};
+
 export type LiveResult = {
   prices: Map<string, LivePrice>;
   /** หุ้นที่ส่งไปถาม provider จริงในรอบนี้ */
@@ -29,8 +36,12 @@ export type Provider = {
   capacity: number;
   /** ดึงราคาสด — ต้องบอกด้วยว่ายิงถามตัวไหนไปจริง เพื่อแยก "ไม่มีข้อมูล" ออกจาก "โควตาไม่พอ" */
   fetchLive(symbols: string[]): Promise<LiveResult>;
-  /** ราคา ณ 11:30 ET ของวันซื้อขายล่าสุด — null ถ้าไม่รองรับ/ยังไม่มีข้อมูล */
-  fetchWindowEnd(symbol: string): Promise<number | null>;
+  /**
+   * ข้อมูลของหน้าต่าง 09:30–11:30 ET ของวันซื้อขายล่าสุด
+   * high ต้องคิดจากแท่งในช่วงนี้เท่านั้น ไม่ใช่ high ของทั้งวัน
+   * เพราะหลัง 11:30 ราคายังวิ่งต่อและจะทำให้ high เพี้ยนจากที่กลยุทธ์สนใจ
+   */
+  fetchWindowSnapshot(symbol: string): Promise<WindowSnapshot | null>;
   /**
    * ชื่อบริษัทของชื่อย่อ — provider ที่ไม่ส่งชื่อมาพร้อมราคา (เช่น Finnhub)
    * ใช้ตัวนี้เติมให้ ผู้ใช้จะยังเห็นว่า ticker ตรงตัวที่ต้องการไหม

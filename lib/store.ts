@@ -7,6 +7,19 @@ export type RawQuote = {
   name: string | null;
   open: number | null;
   windowEnd: number | null;
+  /** ราคาสูงสุดในช่วง 20:30–22:30 น. (snapshot เก่าที่บันทึกก่อนมีฟีเจอร์นี้จะเป็น null) */
+  windowHigh?: number | null;
+};
+
+/** บันทึกการเทรดจริงของหุ้นตัวหนึ่งในวันหนึ่ง */
+export type JournalEntry = {
+  /** ซื้อจริงไหม */
+  bought: boolean;
+  /** ราคาที่เข้า */
+  entry: number | null;
+  /** ราคาที่ออก — ว่างไว้ได้ถ้ายังถืออยู่ */
+  exit: number | null;
+  note?: string;
 };
 
 export type Store = {
@@ -17,6 +30,8 @@ export type Store = {
   snapshots: Record<string, RawQuote[]>;
   thresholds: Thresholds;
   onlyOk: boolean;
+  /** บันทึกผลจริง คีย์เป็น "YYYY-MM-DD:SYMBOL" */
+  journal: Record<string, JournalEntry>;
 };
 
 export const STORAGE_KEY = 'trading-guide:v2';
@@ -29,8 +44,11 @@ export function emptyStore(today: string): Store {
     snapshots: {},
     thresholds: { ...DEFAULT_THRESHOLDS },
     onlyOk: false,
+    journal: {},
   };
 }
+
+export const journalKey = (date: string, symbol: string) => `${date}:${symbol}`;
 
 /** อ่านค่าที่เก็บไว้ พร้อมย้ายข้อมูลจากรูปแบบเก่า (ลิสต์เดียวไม่แยกวัน) */
 export function loadStore(today: string): Store {
@@ -47,6 +65,7 @@ export function loadStore(today: string): Store {
         snapshots: parsed.snapshots ?? {},
         thresholds: parsed.thresholds ?? base.thresholds,
         onlyOk: typeof parsed.onlyOk === 'boolean' ? parsed.onlyOk : false,
+        journal: parsed.journal ?? {},
       };
     }
 
@@ -63,6 +82,7 @@ export function loadStore(today: string): Store {
         snapshots: {},
         thresholds: old.thresholds ?? base.thresholds,
         onlyOk: old.onlyOk ?? false,
+        journal: {},
       };
     }
   } catch {

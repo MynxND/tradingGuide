@@ -1,4 +1,4 @@
-import type { LiveResult, LivePrice, Provider } from './types';
+import type { LiveResult, LivePrice, Provider, WindowSnapshot } from './types';
 
 const BASE = 'https://api.twelvedata.com';
 
@@ -71,10 +71,10 @@ export function twelveData(apiKey: string): Provider {
       return { prices: out, attempted: symbols };
     },
 
-    async fetchWindowEnd(symbol) {
+    async fetchWindowSnapshot(symbol): Promise<WindowSnapshot | null> {
       if (allowance() < 1) throw new Error('โควตา Twelve Data เต็มในนาทีนี้ จะลองใหม่รอบหน้า');
       charge(1);
-      // แท่ง 1 นาทีที่ 11:30 ET — ขอย้อน 3 ชม.พอ ไม่ต้องดึงทั้งวัน
+      // แท่ง 1 นาทีของช่วงที่สนใจ — ขอย้อน 3 ชม.พอ ไม่ต้องดึงทั้งวัน
       const url =
         `${BASE}/time_series?symbol=${encodeURIComponent(symbol)}` +
         `&interval=1min&outputsize=400&timezone=America/New_York&apikey=${apiKey}`;
@@ -84,10 +84,41 @@ export function twelveData(apiKey: string): Provider {
       const json = await res.json();
       if (json?.status === 'error') throw new Error(json.message ?? 'Twelve Data error');
 
-      const values: Array<{ datetime: string; open: string; close: string }> = json?.values ?? [];
+      const values: Array<{ datetime: string; open: string; close: string; high: string }> =
+        json?.values ?? [];
+      if (values.length === 0) return null;
+
       // datetime อยู่ใน timezone ET แล้ว รูปแบบ "YYYY-MM-DD HH:MM:SS"
-      const bar = values.find((v) => v.datetime.slice(11, 16) === '11:30');
-      return bar ? num(bar.open) ?? num(bar.close) : null;
+      // ชุดข้อมูลเรียงใหม่ก่อน จึงยึดวันของแท่งล่าสุดเป็นวันที่สนใจ
+      const day = values[0].datetime.slice(0, 10);
+      const inDay = values.filter((v) => v.datetime.startsWith(day));
+
+      /**
+       * หุ้นสภาพคล่องต่ำอาจไม่มีการซื้อขายในนาที 11:30 เลย จึงไม่มีแท่งนั้น
+       * ถ้าหาไม่เจอให้ถอยไปใช้แท่งล่าสุดที่ไม่เกิน 11:30 (ราคาที่ยังยืนอยู่ตอนนั้น)
+       * ไม่งั้นจะตกไปใช้ราคาล่าสุดของวันซึ่งเลยหน้าต่างไปแล้วและทำให้ % ผิด
+       */
+      const endBar =
+        inDay.find((v) => v.datetime.slice(11, 16) === '11:30') ??
+        inDay
+          .filter((v) => {
+            const hhmm = v.datetime.slice(11, 16);
+            return hhmm >= '09:30' && hhmm <= '11:30';
+          })
+          // ชุดข้อมูลเรียงใหม่ก่อน ตัวแรกคือแท่งที่ใกล้ 11:30 ที่สุด
+          .at(0);
+      const end = endBar ? num(endBar.open) ?? num(endBar.close) : null;
+
+      // high เอาแค่ช่วง 09:30–11:30 ไม่เอา high ของทั้งวัน
+      const highs = inDay
+        .filter((v) => {
+          const hhmm = v.datetime.slice(11, 16);
+          return hhmm >= '09:30' && hhmm <= '11:30';
+        })
+        .map((v) => num(v.high))
+        .filter((n): n is number => n != null);
+
+      return { end, high: highs.length > 0 ? Math.max(...highs) : null };
     },
   };
 }

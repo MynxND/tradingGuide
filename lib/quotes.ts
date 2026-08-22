@@ -12,6 +12,8 @@ export type SymbolQuote = {
   /** ราคาซื้อขายล่าสุดที่ดึงได้ */
   last: number | null;
   dayHigh: number | null;
+  /** ราคาสูงสุดในช่วง 20:30–22:30 น. (นิ่งแล้วเมื่อพ้นเวลา) */
+  windowHigh: number | null;
   /** เวลาที่ราคาสดของหุ้นตัวนี้ถูกอัปเดตล่าสุด (epoch ms) */
   updatedAt: number | null;
   error?: string;
@@ -52,7 +54,7 @@ const inflight = new Map<string, Promise<void>>();
 let storeDay: string | null = null;
 const liveStore = new Map<string, Stored>();
 /** คีย์ "YYYY-MM-DD:SYMBOL" */
-const windowEndCache = new Map<string, number | null>();
+const windowEndCache = new Map<string, { end: number | null; high: number | null }>();
 /** หุ้นที่ provider ตอบสำเร็จแต่ไม่มีข้อมูลให้ — พักไว้ ไม่ยิงซ้ำทุกรอบให้เปลืองโควตา */
 const misses = new Map<string, { count: number; until: number }>();
 const MISS_BACKOFF_MS = 10 * 60_000;
@@ -125,7 +127,8 @@ export async function getQuotes(symbols: string[]): Promise<QuotesResult> {
       .slice(0, WINDOW_END_PER_CYCLE);
     for (const symbol of missing) {
       try {
-        windowEndCache.set(`${day}:${symbol}`, await windowEndProvider.fetchWindowEnd(symbol));
+        const snap = await windowEndProvider.fetchWindowSnapshot(symbol);
+        windowEndCache.set(`${day}:${symbol}`, { end: snap?.end ?? null, high: snap?.high ?? null });
       } catch (err) {
         // ดึงไม่ได้ก็ใช้ราคาล่าสุดไปก่อน แล้วลองใหม่รอบหน้า
         warning ??= err instanceof Error ? err.message : undefined;
@@ -149,14 +152,17 @@ export async function getQuotes(symbols: string[]): Promise<QuotesResult> {
 
   const quotes: SymbolQuote[] = symbols.map((symbol) => {
     const stored = liveStore.get(symbol);
-    const windowEnd = state === 'after' ? windowEndCache.get(`${day}:${symbol}`) ?? null : null;
+    const snap = state === 'after' ? windowEndCache.get(`${day}:${symbol}`) : undefined;
     return {
       symbol,
       name: stored?.price.name ?? nameCache.get(symbol) ?? null,
       open: stored?.price.open ?? null,
-      windowEnd,
+      windowEnd: snap?.end ?? null,
       last: stored?.price.last ?? null,
       dayHigh: stored?.price.dayHigh ?? null,
+      // ยังไม่พ้นช่วง: high ของวันคือ high ของช่วงนี้อยู่แล้ว
+      // พ้นช่วงแล้ว: ต้องใช้ค่าที่คิดจากแท่งในช่วงเท่านั้น
+      windowHigh: snap ? snap.high : stored?.price.dayHigh ?? null,
       updatedAt: stored?.at ?? null,
       error: stored ? undefined : warning ?? 'ยังไม่มีข้อมูล',
     };

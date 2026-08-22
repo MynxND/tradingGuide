@@ -42,7 +42,8 @@ export const mock: Provider = {
     return { prices: out, attempted: symbols };
   },
 
-  async fetchWindowEnd(symbol) {
-    return EXCEL_FIXTURE[symbol]?.end ?? null;
+  async fetchWindowSnapshot(symbol) {
+    const f = EXCEL_FIXTURE[symbol];
+    return f ? { end: f.end, high: Math.max(f.open, f.end) } : null;
   },
 };

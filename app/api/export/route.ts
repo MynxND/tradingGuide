@@ -9,6 +9,7 @@ type ExportRow = {
   name?: string | null;
   open: number | null;
   windowEnd: number | null;
+  windowHigh?: number | null;
   diff: number | null;
   pct: number | null;
   decision: string;
@@ -26,6 +27,7 @@ const HEADERS = [
   { header: 'บริษัท', key: 'name', width: 34 },
   { header: 'Open 20:30', key: 'open', width: 13 },
   { header: 'ราคา 22:30', key: 'end', width: 13 },
+  { header: 'High ช่วง', key: 'high', width: 13 },
   { header: 'Diff', key: 'diff', width: 12 },
   { header: '%', key: 'pct', width: 10 },
   { header: 'Decision', key: 'decision', width: 11 },
@@ -73,20 +75,21 @@ export async function POST(request: Request) {
         r.name ?? '',
         r.open,
         r.windowEnd,
+        r.windowHigh ?? null,
         r.diff,
         r.pct == null ? null : r.pct / 100,
         r.decision,
       ]);
 
-      for (const col of [3, 4, 5]) row.getCell(col).numFmt = '#,##0.0000';
-      row.getCell(6).numFmt = '0.00%';
+      for (const col of [3, 4, 5, 6]) row.getCell(col).numFmt = '#,##0.0000';
+      row.getCell(7).numFmt = '0.00%';
 
       const up = (r.pct ?? 0) > 0;
-      for (const col of [5, 6]) {
+      for (const col of [6, 7]) {
         row.getCell(col).font = { color: { argb: up ? 'FF26A69A' : 'FFEF5350' } };
       }
 
-      const cell = row.getCell(7);
+      const cell = row.getCell(8);
       cell.alignment = { horizontal: 'center' };
       if (r.decision === 'OK') {
         cell.font = { bold: true, color: { argb: 'FF26A69A' } };
