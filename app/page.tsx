@@ -16,7 +16,16 @@ import { DateBar } from './DateBar';
 import { ExportButton, type ExportRow } from './ExportButton';
 import { GainersTab } from './GainersTab';
 import { SymbolPicker } from './SymbolPicker';
-import { MagnitudeBar, Pill, QuoteStat, fmtPrice, fmtSigned, priceDigits, toneClass } from './ui';
+import {
+  MagnitudeBar,
+  Pill,
+  QuoteStat,
+  TrashIcon,
+  fmtPrice,
+  fmtSigned,
+  priceDigits,
+  toneClass,
+} from './ui';
 
 const FALLBACK_REFRESH_MS = 60_000;
 const HISTORY_POLL_MS = 8_000;
@@ -539,10 +548,11 @@ export default function Page() {
                       <td className="pr-3 text-right">
                         <button
                           onClick={() => removeSymbol(r.symbol)}
-                          className="text-[16px] leading-none text-ink-dim opacity-0 transition group-hover:opacity-100 hover:text-down"
+                          className="p-1 text-ink-dim opacity-0 transition group-hover:opacity-100 hover:text-down"
+                          title={`ลบ ${r.symbol}`}
                           aria-label={`ลบ ${r.symbol}`}
                         >
-                          ×
+                          <TrashIcon className="size-[15px]" />
                         </button>
                       </td>
                     </tr>
@@ -670,10 +680,10 @@ function MobileRow({
         </div>
         <button
           onClick={onRemove}
-          className="ml-1 shrink-0 text-[18px] leading-none text-ink-dim hover:text-down"
+          className="ml-1 shrink-0 p-1 text-ink-dim hover:text-down"
           aria-label={`ลบ ${row.symbol}`}
         >
-          ×
+          <TrashIcon className="size-4" />
         </button>
       </div>
 

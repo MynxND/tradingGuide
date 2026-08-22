@@ -24,6 +24,8 @@ export type QuotesResult = {
   serverTime: number;
   /** รอบหนึ่งดึงราคาสดได้กี่ตัว ตามโควตา provider */
   perCycle: number;
+  /** จำนวนหุ้นสูงสุดที่โควตารีเฟรชได้ทันทุกรอบ */
+  capacity: number;
   /** จังหวะรีเฟรชที่โควตารับได้ (ms) */
   refreshMs: number;
   /** หุ้นที่ provider หาไม่เจอ — สะกดผิดหรือไม่มีในแพ็กเกจ */
@@ -148,12 +150,23 @@ export async function getQuotes(symbols: string[]): Promise<QuotesResult> {
       `กำลังทยอยเก็บอีก ${pending} ตัว`;
   }
 
+  // ลิสต์ใหญ่เกินโควตา ราคาจะยังอัปเดตแต่หมุนช้าลง บอกให้รู้ดีกว่าปล่อยให้เงียบ ๆ ช้า
+  const tracked = symbols.length - unavailable.length;
+  if (!warning && tracked > liveProvider.capacity) {
+    const cycles = Math.ceil(tracked / liveProvider.capacity);
+    const seconds = Math.round((cycles * liveProvider.minCycleMs) / 1000);
+    warning =
+      `ลิสต์ ${tracked} ตัว เกินที่โควตา ${liveProvider.name} รีเฟรชได้ทันรอบเดียว ` +
+      `(ไหวสูงสุด ${liveProvider.capacity} ตัว) — ราคาแต่ละตัวจะหมุนอัปเดตทุก ~${seconds} วิ`;
+  }
+
   return {
     quotes,
     provider: liveProvider.name,
     windowEndProvider: windowEndProvider.name,
     serverTime: Date.now(),
     perCycle: liveProvider.maxPerCycle,
+    capacity: liveProvider.capacity,
     refreshMs: liveProvider.minCycleMs,
     unavailable,
     warning,

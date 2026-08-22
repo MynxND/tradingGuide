@@ -24,6 +24,7 @@ export const mock: Provider = {
   name: 'mock',
   maxPerCycle: 100,
   minCycleMs: 10_000,
+    capacity: 100, // ไม่มีโควตา
 
   async fetchLive(symbols): Promise<LiveResult> {
     const out = new Map<string, LivePrice>();

@@ -33,15 +33,19 @@ export const yahoo: Provider = {
   name: 'yahoo',
   maxPerCycle: 6,
   minCycleMs: 60_000,
+  capacity: 6, // ยิงทีละตัว จำกัดเองกันโดนบล็อก
 
   async fetchLive(symbols): Promise<LiveResult> {
     const out = new Map<string, LivePrice>();
+    const attempted: string[] = [];
     // Yahoo ไม่มี batch ที่ใช้ได้โดยไม่มี crumb — ยิงทีละตัวแบบจำกัด concurrency
     for (let i = 0; i < symbols.length; i += 3) {
       const chunk = symbols.slice(i, i + 3);
       const results = await Promise.allSettled(chunk.map((s) => chart(s)));
       results.forEach((r, idx) => {
+        // ตัวที่ error ไม่นับเป็น attempted จะได้ไม่ถูกมาร์คว่าไม่มีข้อมูล
         if (r.status !== 'fulfilled') return;
+        attempted.push(chunk[idx]);
         const meta = r.value.meta ?? {};
         out.set(chunk[idx], {
           symbol: chunk[idx],
@@ -54,7 +58,7 @@ export const yahoo: Provider = {
     if (out.size === 0 && symbols.length > 0) {
       throw new Error('Yahoo บล็อก (429) — ใส่ TWELVEDATA_API_KEY เพื่อใช้แหล่งข้อมูลที่เสถียร');
     }
-    return { prices: out, attempted: symbols };
+    return { prices: out, attempted };
   },
 
   async fetchWindowEnd(symbol) {

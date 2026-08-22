@@ -37,6 +37,7 @@ export function twelveData(apiKey: string): Provider {
     maxPerCycle: 6,
     // 6 credits/รอบ × 1 รอบ/นาที = 6 credits/นาที ยังเหลือที่ให้ time_series
     minCycleMs: 60_000,
+    capacity: 6, // 6 credits ต่อรอบ 60 วิ
 
     async fetchLive(requested): Promise<LiveResult> {
       const out = new Map<string, LivePrice>();

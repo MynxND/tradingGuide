@@ -114,3 +114,24 @@ export function MagnitudeBar({
     </div>
   );
 }
+
+/** ไอคอนถังขยะ — stroke ตามสีตัวอักษรของปุ่ม จะได้เปลี่ยนสีตอน hover ได้ */
+export function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className ?? 'size-4'}
+    >
+      <path d="M2.5 4.5h11" />
+      <path d="M6.5 2.5h3" />
+      <path d="M3.8 4.5l.6 8.2a1 1 0 0 0 1 .8h5.2a1 1 0 0 0 1-.8l.6-8.2" />
+      <path d="M6.6 7v4M9.4 7v4" />
+    </svg>
+  );
+}
