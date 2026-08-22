@@ -75,13 +75,37 @@ pnpm install
 pnpm dev
 ```
 
+## รายชื่อหุ้นสำหรับ autocomplete
+
+`data/us-symbols.json` (27,511 ตัว, ~1.1 MB) ถูกดึงมาเก็บเป็นไฟล์ในโปรเจกต์ ไม่ได้ดึงตอนมีคนเข้าเว็ป
+เพราะบน serverless จะเกิดใหม่ทุก cold start (ต้นฉบับจาก Finnhub หนัก 7.3 MB) และเสี่ยงชน function timeout
+
+อัปเดตรายชื่อ (ควรทำเดือนละครั้ง หรือเมื่อหาหุ้น IPO ใหม่ไม่เจอ):
+
+```bash
+set -a && . ./.env.local && set +a && pnpm symbols:build
+```
+
+หุ้นที่ไม่มีในไฟล์จะตกไปถาม `/search` ของ Finnhub เป็นทางสำรองอัตโนมัติ
+
 ## Deploy ขึ้น Vercel
 
 ```bash
 pnpm dlx vercel
 ```
 
-แล้วตั้ง environment variable `TWELVEDATA_API_KEY` ใน Vercel project settings
+ตั้ง environment variables ใน Vercel project settings ให้ครบทั้ง Production / Preview / Development:
+`FINNHUB_API_KEY` และ `TWELVEDATA_API_KEY`
+
+### ข้อจำกัดบน serverless ที่ควรรู้
+
+cache ทั้งหมดในโปรเจกต์นี้อยู่ใน memory ของ process (`lib/quotes.ts`, `lib/history.ts`,
+ตัวนับ credit ใน `lib/providers/twelvedata.ts`) ซึ่งบน Vercel แต่ละ instance จะมีของตัวเอง
+
+- ใช้คนเดียว: instance มักถูกใช้ซ้ำ (warm) ระหว่างเปิดเว็ปอยู่ ไม่ค่อยมีปัญหา
+- ถ้ามีผู้ใช้หลายคนพร้อมกัน: ตัวนับ credit ของ Twelve Data จะนับแยกกันแต่ละ instance
+  ทำให้ยิงเกินโควตา 8/นาที แล้วโดน 429 — ต้องย้าย state ไป Upstash Redis / Vercel KV ก่อน
+- `data/us-symbols.json` และ gainers (ผ่าน Vercel Data Cache 10 นาที) ไม่ได้รับผลกระทบนี้
 
 ## หมายเหตุ
 

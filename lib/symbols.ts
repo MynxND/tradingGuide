@@ -1,13 +1,15 @@
 /**
  * ค้นหาชื่อย่อหุ้นสำหรับช่อง "เพิ่มหุ้น"
  *
- * รายชื่อหุ้น US ทั้งตลาดมี ~31,000 ตัว (7 MB) ใหญ่เกินจะส่งไปกรองบนมือถือ
- * จึงโหลดมาเก็บในหน่วยความจำฝั่ง server ครั้งเดียวต่อวัน แล้วกรองให้
- * ระหว่างที่ยังโหลดไม่เสร็จ (เช่น cold start) ใช้ /search ของ Finnhub ไปก่อน
+ * รายชื่อหุ้น US ถูกดึงมาเก็บเป็นไฟล์ตอน build (`pnpm symbols:build` → data/us-symbols.json)
+ * ไม่ใช่ดึงตอนมีคนเข้าเว็ป เพราะบน serverless จะเกิดใหม่ทุก cold start (7.3 MB)
+ * และเสี่ยงชน function timeout
+ *
+ * ถ้าหาในไฟล์ไม่เจอ (หุ้น IPO ใหม่หลังวันที่ build) ค่อยถาม /search ของ Finnhub เป็นทางสำรอง
  */
+import table from '@/data/us-symbols.json';
 
 const BASE = 'https://finnhub.io/api/v1';
-const LIST_TTL_MS = 24 * 60 * 60_000;
 const MAX_RESULTS = 30;
 
 export type SymbolHit = {
@@ -19,125 +21,66 @@ export type SymbolHit = {
   otc: boolean;
 };
 
-type Entry = SymbolHit & { symbolLower: string; nameLower: string };
+type Row = [symbol: string, name: string, exchange: string];
 
-/** MIC code → ชื่อตลาดที่คนอ่านรู้เรื่อง */
-const MIC_LABEL: Record<string, string> = {
-  XNAS: 'NASDAQ',
-  XNGS: 'NASDAQ',
-  XNCM: 'NASDAQ',
-  XNMS: 'NASDAQ',
-  XNYS: 'NYSE',
-  ARCX: 'NYSE Arca',
-  XASE: 'NYSE American',
-  AMXO: 'NYSE American',
-  BATS: 'Cboe BZX',
-  XCBO: 'Cboe',
-  IEXG: 'IEX',
-  OOTC: 'OTC',
-  OTCM: 'OTC',
-  PSGM: 'OTC',
-  OTCB: 'OTC',
-  OTCQ: 'OTC',
+const rows = table.rows as Row[];
+
+/** เตรียม lowercase ไว้ล่วงหน้าครั้งเดียว ไม่ต้องแปลงใหม่ทุกครั้งที่ค้น */
+const lower = rows.map(([s, n]) => [s.toLowerCase(), n.toLowerCase()] as const);
+
+const toHit = (i: number): SymbolHit => {
+  const [symbol, name, exchange] = rows[i];
+  return { symbol, name, exchange: exchange || '—', otc: exchange === 'OTC' };
 };
-
-/** เอาเฉพาะประเภทที่เทรดได้จริง */
-const KEEP_TYPES = new Set(['Common Stock', 'ADR', 'ETP', 'REIT']);
-
-let entries: Entry[] | null = null;
-let loadedAt = 0;
-let loading: Promise<void> | null = null;
-
-function exchangeOf(mic: string) {
-  const label = MIC_LABEL[mic] ?? mic ?? '';
-  return { exchange: label || '—', otc: label === 'OTC' };
-}
-
-async function loadList(apiKey: string) {
-  const res = await fetch(`${BASE}/stock/symbol?exchange=US&token=${apiKey}`, {
-    // รายชื่อหุ้นเปลี่ยนไม่กี่ตัวต่อวัน แคชได้นาน
-    next: { revalidate: 86_400 },
-  });
-  if (!res.ok) throw new Error(`Finnhub ตอบ ${res.status}`);
-  const raw: Array<{ symbol: string; description: string; mic: string; type: string }> = await res.json();
-
-  entries = raw
-    .filter((r) => r.symbol && r.description && KEEP_TYPES.has(r.type))
-    .map((r) => {
-      const { exchange, otc } = exchangeOf(r.mic);
-      return {
-        symbol: r.symbol,
-        name: r.description,
-        exchange,
-        otc,
-        symbolLower: r.symbol.toLowerCase(),
-        nameLower: r.description.toLowerCase(),
-      };
-    });
-  loadedAt = Date.now();
-}
-
-function ensureLoaded(apiKey: string) {
-  const fresh = entries && Date.now() - loadedAt < LIST_TTL_MS;
-  if (fresh || loading) return;
-  loading = loadList(apiKey)
-    .catch(() => {
-      /* โหลดไม่ได้ก็ยังมี /search เป็นทางสำรอง */
-    })
-    .finally(() => {
-      loading = null;
-    });
-}
 
 const strip = (s: string) => s.toLowerCase().trim();
 
 /** เรียงผลลัพธ์: ตรงชื่อย่อเป๊ะ → ชื่อย่อขึ้นต้น → ชื่อบริษัทขึ้นต้น → มีคำนั้นอยู่ */
-function score(e: Entry, q: string) {
-  if (e.symbolLower === q) return 0;
-  if (e.symbolLower.startsWith(q)) return 1;
-  if (e.nameLower.startsWith(q)) return 2;
-  if (e.symbolLower.includes(q)) return 3;
-  if (e.nameLower.includes(q)) return 4;
+function score(i: number, q: string) {
+  const [sym, name] = lower[i];
+  if (sym === q) return 0;
+  if (sym.startsWith(q)) return 1;
+  if (name.startsWith(q)) return 2;
+  if (sym.includes(q)) return 3;
+  if (name.includes(q)) return 4;
   return -1;
 }
 
-/** ยังไม่พิมพ์อะไร — เรียงตามตัวอักษร เอาหุ้นในตลาดหลักก่อน */
+/** ยังไม่พิมพ์อะไร — เรียงตามตัวอักษร เอาหุ้นในตลาดหลักก่อน (ไฟล์เรียงมาแล้ว) */
 function alphabetical(): SymbolHit[] {
-  if (!entries) return [];
-  return entries
-    .filter((e) => !e.otc)
-    .sort((a, b) => a.symbol.localeCompare(b.symbol))
-    .slice(0, MAX_RESULTS)
-    .map((e) => ({ symbol: e.symbol, name: e.name, exchange: e.exchange, otc: e.otc }));
+  const out: SymbolHit[] = [];
+  for (let i = 0; i < rows.length && out.length < MAX_RESULTS; i++) {
+    if (rows[i][2] === 'OTC') continue;
+    out.push(toHit(i));
+  }
+  return out;
 }
 
-function searchLocal(query: string): SymbolHit[] {
-  if (!entries) return [];
-  const q = strip(query);
-  const scored: Array<{ e: Entry; s: number }> = [];
-  for (const e of entries) {
-    const s = score(e, q);
+function searchLocal(q: string): SymbolHit[] {
+  const scored: Array<{ i: number; s: number }> = [];
+  for (let i = 0; i < rows.length; i++) {
+    const s = score(i, q);
     if (s < 0) continue;
     // OTC ถอยไปท้ายกลุ่มเดียวกัน เพราะมักไม่ใช่ตัวที่คนหา
-    scored.push({ e, s: s * 2 + (e.otc ? 1 : 0) });
+    scored.push({ i, s: s * 2 + (rows[i][2] === 'OTC' ? 1 : 0) });
   }
-  scored.sort((a, b) => a.s - b.s || a.e.symbol.length - b.e.symbol.length || a.e.symbol.localeCompare(b.e.symbol));
-  return scored.slice(0, MAX_RESULTS).map(({ e }) => ({
-    symbol: e.symbol,
-    name: e.name,
-    exchange: e.exchange,
-    otc: e.otc,
-  }));
+  scored.sort(
+    (a, b) =>
+      a.s - b.s ||
+      rows[a.i][0].length - rows[b.i][0].length ||
+      rows[a.i][0].localeCompare(rows[b.i][0]),
+  );
+  return scored.slice(0, MAX_RESULTS).map(({ i }) => toHit(i));
 }
 
 async function searchRemote(query: string, apiKey: string): Promise<SymbolHit[]> {
-  const res = await fetch(
-    `${BASE}/search?q=${encodeURIComponent(query)}&exchange=US&token=${apiKey}`,
-    { cache: 'no-store' },
-  );
+  const res = await fetch(`${BASE}/search?q=${encodeURIComponent(query)}&exchange=US&token=${apiKey}`, {
+    // ผลค้นหาชื่อหุ้นไม่เปลี่ยนบ่อย ให้ Vercel แคชไว้ข้าม instance ได้
+    next: { revalidate: 86_400 },
+  });
   if (!res.ok) throw new Error(`Finnhub ตอบ ${res.status}`);
   const json = await res.json();
-  const result: Array<{ symbol: string; description: string; type: string }> = json?.result ?? [];
+  const result: Array<{ symbol: string; description: string }> = json?.result ?? [];
   return result
     .filter((r) => r.symbol && !r.symbol.includes('.'))
     .slice(0, MAX_RESULTS)
@@ -145,21 +88,14 @@ async function searchRemote(query: string, apiKey: string): Promise<SymbolHit[]>
 }
 
 export async function searchSymbols(query: string): Promise<{ hits: SymbolHit[]; source: string }> {
-  const apiKey = process.env.FINNHUB_API_KEY;
-  if (!apiKey) return { hits: [], source: 'none' };
-
-  ensureLoaded(apiKey);
-
   const q = strip(query);
-  if (q.length === 0) {
-    // ลิสต์ยังโหลดไม่เสร็จก็ตอบว่าง หน้าเว็ปจะโชว์ชุดจาก Excel ไปก่อน
-    return { hits: alphabetical(), source: entries ? 'alphabetical' : 'loading' };
-  }
+  if (q.length === 0) return { hits: alphabetical(), source: 'alphabetical' };
 
   const local = searchLocal(q);
   if (local.length > 0) return { hits: local, source: 'local' };
 
-  // รายชื่อยังโหลดไม่เสร็จ หรือไม่มีตัวตรงในลิสต์ — ลองถาม Finnhub ตรง ๆ
+  const apiKey = process.env.FINNHUB_API_KEY;
+  if (!apiKey) return { hits: [], source: 'none' };
   try {
     return { hits: await searchRemote(q, apiKey), source: 'finnhub' };
   } catch {
@@ -167,7 +103,7 @@ export async function searchSymbols(query: string): Promise<{ hits: SymbolHit[];
   }
 }
 
-/** ให้หน้าเว็ปรู้ว่าลิสต์พร้อมหรือยัง และมีกี่ตัว */
+/** ให้หน้าเว็ปรู้ว่าลิสต์มาจากไฟล์วันไหนและมีกี่ตัว */
 export function listStatus() {
-  return { ready: entries !== null, count: entries?.length ?? 0 };
+  return { ready: true, count: rows.length, updatedAt: table.updatedAt as string };
 }

@@ -50,7 +50,9 @@ let inflight: Promise<Gainer[]> | null = null;
 async function fetchAll(): Promise<Gainer[]> {
   const res = await fetch(URL_ALL, {
     headers: { 'User-Agent': UA, Accept: 'application/json' },
-    cache: 'no-store',
+    // ให้ Vercel Data Cache เก็บไว้ 10 นาที ใช้ร่วมกันข้าม instance
+    // ไม่งั้นทุก cold start ต้องดึงใหม่ 1.4 MB
+    next: { revalidate: 600 },
   });
   if (!res.ok) throw new Error(`NASDAQ ตอบ ${res.status}`);
   const json = await res.json();
