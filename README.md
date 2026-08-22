@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Trading Guide — เว็ปสรุปสูตรเทรดแบบเรียลไทม์
 
-## Getting Started
+แปลงสูตรจากไฟล์ `(01)-เล่นแล้วรวย USA-Pop.xlsx` (ชีต `Toppppppppppppppp`) ให้คำนวณเองอัตโนมัติ
+ไม่ต้องคีย์ราคาเข้า Excel ทีละตัว
 
-First, run the development server:
+## สูตรที่ใช้ (ตรงตามไฟล์ต้นฉบับ)
+
+| Excel | เว็ป |
+|---|---|
+| `H` แถวคี่ = Open 20:30 น. | ราคาเปิด session 09:30 ET |
+| `H` แถวคู่ = 22:30 น. | ราคา ณ 11:30 ET |
+| `I = +H4-H3` | Diff |
+| `J = +I3/H3` | Diff / Open |
+| `L = +J3*K3` (K=100) | % |
+| `M = IF(AND(ABS(L)>=5.5, ABS(L)<=30),"OK","NG")` | ซื้อได้ / ไม่ซื้อ (ตัด `ABS` ออก ดูด้านล่าง) |
+
+- ช่วงเวลา 20:30–22:30 น. (ไทย) = 09:30–11:30 ET คือ 2 ชั่วโมงแรกหลังตลาด US เปิด
+- **นับเฉพาะขาขึ้น** — สูตรต้นฉบับครอบด้วย `ABS()` ซึ่งทำให้หุ้นที่ลง 10% ขึ้น "ซื้อได้" ด้วย
+  ตรงนี้ตัด `ABS` ออกตามที่ผู้ใช้ยืนยัน ราคาลงเป็น "ไม่ซื้อ" ทั้งหมดไม่ว่าจะลงแรงแค่ไหน
+- เกณฑ์ +5.5% ถึง +30% ปรับได้บนหน้าเว็ป (ในไฟล์ต้นฉบับ หมายเหตุเขียน 6% แต่สูตรจริงใช้ 5.5%)
+
+## ลิสต์แยกวัน + Export Excel
+
+- ลิสต์หุ้นแยกตาม **วันซื้อขาย** (คีย์เป็นวันที่ ET) เลือกวันจากปุ่มลัด 5 วันทำการล่าสุด หรือช่องเลือกวัน
+- วันใหม่ที่ยังไม่มีลิสต์ กดก๊อปลิสต์จากวันอื่นได้ในคลิกเดียว
+- พ้น 22:30 น. แล้วผลของวันนั้นจะถูก **บันทึกอัตโนมัติ** ลง localStorage
+- วันย้อนหลังที่ไม่มีผลบันทึกไว้ กด **ดึงข้อมูลย้อนหลัง** ได้ (Twelve Data time_series ระบุช่วงเวลา
+  1 request ต่อหุ้น ทยอยดึง 4 ตัวต่อรอบตามโควตา)
+- Snapshot เก็บแค่ราคาดิบ (open / 22:30) ไม่เก็บผลตัดสิน ดังนั้นแก้เกณฑ์แล้ว **ทุกวันคำนวณใหม่ตาม**
+- **Export Excel** เป็น .xlsx จริง (ไม่ใช่ CSV) — `Export วันนี้` ได้ชีตเดียว, `ทุกวัน` ได้ชีตละวัน
+  ตัวเลขเป็น number format ใช้คำนวณต่อใน Excel ได้ทันที % เป็น percent format
+
+## แท็บในเว็ป
+
+**สูตรของฉัน** — ลิสต์หุ้นที่ติดตาม คำนวณสูตรจาก Excel ให้อัตโนมัติ
+ช่องเพิ่มหุ้นเป็น autocomplete: คลิกแล้วขึ้นรายชื่อเรียงตามตัวอักษร พิมพ์แล้วกรองทั้งชื่อย่อและชื่อบริษัท
+พร้อมป้ายบอกตลาด (NASDAQ / NYSE / OTC) กันเพิ่มผิดตัว
+
+**ปิดบวกสูงสุด** — หุ้นทั้งตลาด US ที่ปิดบวก % สูงสุด กดปุ่มเพิ่มเข้าลิสต์สูตรได้ทันที
+แทนการเปิดแอปโบรกเกอร์แล้วแคปหน้าจอมาคีย์เอง
+ที่มา: `api.nasdaq.com/api/screener/stocks` — ขอครั้งเดียวได้ทั้งตลาด (~7,000 ตัว) ไม่ต้องมี key
+แล้วเรียง % เอง ตัด warrant / unit / right / preferred ออก (ADR เก็บไว้เพราะเทรดได้จริง)
+
+> endpoint นี้เป็นของหน้าเว็ป NASDAQ เอง ไม่ใช่ public API ที่ประกาศเป็นทางการ
+> ถ้าต้องการแหล่งที่มีสัญญาชัดเจน ใช้ Polygon.io หรือ Financial Modeling Prep (มี free tier ที่มี endpoint gainers)
+
+## แหล่งข้อมูลราคา
+
+ตั้งใน `.env.local` (ดูตัวอย่างที่ `.env.example`)
+
+ระบบแยกหน้าที่ 2 อย่าง เพราะโควตาฟรีของแต่ละเจ้าเหมาะกับงานต่างกัน
+
+| ตัวแปร | หน้าที่ | โควตาฟรี | ผลต่อการรีเฟรช |
+|---|---|---|---|
+| `FINNHUB_API_KEY` | ราคาสด (poll ถี่) | 60 calls/นาที | ทุก **20 วิ** ครบทุกตัว |
+| `TWELVEDATA_API_KEY` | ราคา ณ 11:30 ET | 8 credits/นาที, 800/วัน | ถ้าใช้ตัวเดียว: ทุก **60 วิ** รอบละ 6 หุ้น หมุนเก็บจนครบ (~2-3 นาที) |
+| `QUOTE_PROVIDER=mock` | ทดสอบสูตร | — | ใช้ตัวเลขชุดเดียวกับไฟล์ Excel |
+| ไม่ตั้งอะไรเลย | สำรอง | — | Yahoo Finance endpoint ไม่เป็นทางการ ถูกบล็อกง่าย ไม่แนะนำบน production |
+
+> Twelve Data คิด 1 credit ต่อ 1 หุ้น การขอ 13 หุ้นในครั้งเดียวจึงคิด 13 credits เกินโควตา 8/นาทีทันที
+> ระบบจึงหมุนดึงรอบละ 6 ตัว เลือกตัวที่ราคาเก่าที่สุดก่อน
+
+## ข้อจำกัดที่ต้องรู้
+
+- **ชื่อย่อซ้ำข้ามตลาดได้** — หน้าเว็ปแสดงชื่อบริษัทใต้ชื่อย่อทุกตัว ให้เช็คก่อนซื้อ
+  เช่น `USDC` ในไฟล์ Excel ไปตรงกับ *USData Corp* (OTC ราคา $0.0012 ซื้อขายจริงไม่มี) ซึ่งไม่ใช่ตัวที่ราคา 4.96 → 7.20 ในไฟล์
+- `USDC` และ `MRNG` ทั้งสองแหล่งข้อมูล (Finnhub และ Twelve Data) ยืนยันตรงกันว่าไม่มีราคา
+  หน้าเว็ปจะขึ้นเตือนว่า "หาไม่เจอในแหล่งข้อมูล" และพักไม่ยิงซ้ำ 10 นาที
+- ราคา ณ 11:30 ET ดึงได้เฉพาะเมื่อพ้นเวลานั้นแล้ว ก่อนหน้านั้นช่องราคาจะติดป้าย "สด" = ค่าชั่วคราว
+
+## รัน
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deploy ขึ้น Vercel
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+pnpm dlx vercel
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+แล้วตั้ง environment variable `TWELVEDATA_API_KEY` ใน Vercel project settings
 
-## Learn More
+## หมายเหตุ
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+ข้อมูลราคาเพื่อการติดตามเท่านั้น ไม่ใช่คำแนะนำการลงทุน

@@ -1,26 +1,99 @@
 @import "tailwindcss";
 
+/**
+ * พาเลตแนว TradingView dark — สีขึ้น/ลงใช้เขียวอมฟ้ากับแดงอมชมพูตามของจริง
+ * ไม่ใช่เขียว/แดงสด เพื่อให้จ้องตัวเลขนาน ๆ ได้ไม่แสบตา
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --tv-bg: #131722;
+  --tv-panel: #1e222d;
+  --tv-panel-alt: #181b26;
+  --tv-hover: #2a2e39;
+  --tv-border: #2a2e39;
+  --tv-border-strong: #363a45;
+  --tv-text: #d1d4dc;
+  --tv-text-bright: #f0f3fa;
+  --tv-text-dim: #787b86;
+  --tv-accent: #2962ff;
+  --tv-accent-hover: #1e53e5;
+  --tv-up: #26a69a;
+  --tv-up-soft: rgba(38, 166, 154, 0.12);
+  --tv-down: #ef5350;
+  --tv-down-soft: rgba(239, 83, 80, 0.12);
+  --tv-warn: #ff9800;
+  --tv-warn-soft: rgba(255, 152, 0, 0.1);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg: var(--tv-bg);
+  --color-panel: var(--tv-panel);
+  --color-panel-alt: var(--tv-panel-alt);
+  --color-hover: var(--tv-hover);
+  --color-line: var(--tv-border);
+  --color-line-strong: var(--tv-border-strong);
+  --color-ink: var(--tv-text);
+  --color-ink-bright: var(--tv-text-bright);
+  --color-ink-dim: var(--tv-text-dim);
+  --color-accent: var(--tv-accent);
+  --color-up: var(--tv-up);
+  --color-down: var(--tv-down);
+  --color-warn: var(--tv-warn);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--tv-bg);
+  color: var(--tv-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', 'Segoe UI', 'Noto Sans Thai',
+    system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/** ตัวเลขราคาต้องกว้างเท่ากันทุกหลัก ไม่งั้นตารางกระตุกตอนราคาขยับ */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, monospace;
+  letter-spacing: -0.01em;
+}
+
+/** หัวคอลัมน์แบบเทอร์มินัล */
+.col-head {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tv-text-dim);
+}
+
+.panel {
+  background: var(--tv-panel);
+  border: 1px solid var(--tv-border);
+  border-radius: 6px;
+}
+
+/** ซ่อน spinner ของ input number ให้ดูเป็นช่องกรอกค่าของเทอร์มินัล */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--tv-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--tv-border-strong);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4a4e59;
 }
