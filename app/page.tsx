@@ -38,7 +38,7 @@ const FALLBACK_REFRESH_MS = 60_000;
 const HISTORY_POLL_MS = 8_000;
 
 type Row = RawQuote & {
-  /** ราคาล่าสุด ใช้แทนราคา 22:30 ระหว่างที่ยังไม่ถึงเวลา */
+  /** ราคาล่าสุด แสดงแยกจากราคา 22:30 และใช้แทนค่าชั่วคราวก่อนถึงเวลา */
   last: number | null;
   diff: number | null;
   pct: number | null;
@@ -218,7 +218,7 @@ export default function Page() {
   /** ข้อมูลดิบของวันที่กำลังดู */
   const raws: Array<RawQuote & { last: number | null; error?: string }> = useMemo(() => {
     if (!isToday) {
-      return (snapshot ?? []).map((r) => ({ ...r, last: r.windowEnd }));
+      return (snapshot ?? []).map((r) => ({ ...r, last: null }));
     }
     return quotes.map((q) => ({
       symbol: q.symbol,
@@ -613,6 +613,7 @@ export default function Page() {
                     <th className="col-head px-3 py-2 text-left">สัญลักษณ์</th>
                     <th className="col-head px-3 py-2 text-right">Open 20:30</th>
                     <th className="col-head px-3 py-2 text-right">ราคา 22:30</th>
+                    <th className="col-head px-3 py-2 text-right">ราคา Live</th>
                     <th className="col-head px-3 py-2 text-right">High ช่วง</th>
                     <th className="col-head px-3 py-2 text-right">เปลี่ยนแปลง</th>
                     <th className="col-head px-3 py-2 text-right">%</th>
@@ -641,6 +642,14 @@ export default function Page() {
                         <span className="text-ink-bright">{fmtPrice(r.windowEnd ?? r.last)}</span>
                         {r.provisional && r.last != null && (
                           <span className="ml-1.5 align-middle text-[10px] text-ink-dim">LIVE</span>
+                        )}
+                      </td>
+                      <td className="num px-3 py-2 text-right text-[13px]">
+                        <span className={isToday && r.last != null ? 'text-up' : 'text-ink-dim'}>
+                          {fmtPrice(r.last)}
+                        </span>
+                        {isToday && r.last != null && (
+                          <span className="ml-1.5 align-middle text-[10px] text-up">LIVE</span>
                         )}
                       </td>
                       <td className="num px-3 py-2 text-right text-[13px]">
@@ -691,7 +700,7 @@ export default function Page() {
                   {sorted.map((r) =>
                     editing === r.symbol ? (
                       <tr key={`${r.symbol}-journal`}>
-                        <td colSpan={10} className="p-0">
+                        <td colSpan={11} className="p-0">
                           <JournalEditor
                             key={`${date}-${r.symbol}`}
                             symbol={r.symbol}
@@ -713,7 +722,7 @@ export default function Page() {
                   )}
                   {sorted.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-[13px] text-ink-dim">
+                      <td colSpan={11} className="py-12 text-center text-[13px] text-ink-dim">
                         {loading && isToday ? 'กำลังโหลดข้อมูล…' : 'ยังไม่มีข้อมูลของวันนี้'}
                       </td>
                     </tr>
@@ -743,7 +752,9 @@ export default function Page() {
               <p>
                 ลิสต์หุ้นแยกตามวันซื้อขาย · ผลของวันที่ผ่านไปแล้วถูกบันทึกไว้ในเครื่อง เปลี่ยนเกณฑ์แล้วคำนวณใหม่ให้ทุกวัน
               </p>
-              <p>ป้าย LIVE = ยังไม่ถึง 22:30 น. ค่ายังขยับได้ ผลจะนิ่งเมื่อพ้นเวลาแล้ว</p>
+              <p>
+                ราคา 22:30 จะล็อกเพื่อคำนวณผลเมื่อพ้นเวลา · ราคา Live ยังอัปเดตต่อและไม่กระทบผลสูตร
+              </p>
               <p>ข้อมูลราคาเพื่อการติดตามเท่านั้น ไม่ใช่คำแนะนำการลงทุน</p>
             </footer>
           </>
@@ -913,6 +924,11 @@ function MobileRow({
           <span className="num ml-1 text-ink-bright">{fmtPrice(row.windowEnd ?? row.last)}</span>
           {row.provisional && row.last != null && <span className="ml-1 text-[10px]">LIVE</span>}
         </span>
+        {row.last != null && (
+          <span>
+            Live <span className="num ml-1 text-up">{fmtPrice(row.last)}</span>
+          </span>
+        )}
         {row.windowHigh != null && (
           <span>
             High <span className="num ml-1 text-ink">{fmtPrice(row.windowHigh)}</span>
