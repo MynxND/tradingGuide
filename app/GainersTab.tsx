@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MagnitudeBar, fmtPrice } from './ui';
+import type { GainerPeriod } from '@/lib/gainers';
 
 export type Gainer = {
   symbol: string;
@@ -18,6 +19,12 @@ type Props = {
 };
 
 const LIMIT_OPTIONS = [20, 50, 100];
+const PERIOD_OPTIONS: { value: GainerPeriod; label: string }[] = [
+  { value: '30m', label: '30 นาที' },
+  { value: '1h', label: '1 ชั่วโมง' },
+  { value: '1d', label: '1 วัน' },
+  { value: '5d', label: '5 วัน' },
+];
 
 const fmtCap = (n: number | null) => {
   if (n == null || n === 0) return '—';
@@ -30,29 +37,35 @@ const fmtCap = (n: number | null) => {
 export function GainersTab({ existing, onAdd }: Props) {
   const [gainers, setGainers] = useState<Gainer[]>([]);
   const [limit, setLimit] = useState(50);
+  const [period, setPeriod] = useState<GainerPeriod>('1d');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  const requestId = useRef(0);
 
-  const load = useCallback(async (n: number) => {
+  const load = useCallback(async (n: number, selectedPeriod: GainerPeriod) => {
+    const id = ++requestId.current;
     setLoading(true);
+    setError(null);
     try {
-      const res = await fetch(`/api/gainers?limit=${n}`, { cache: 'no-store' });
+      const res = await fetch(`/api/gainers?limit=${n}&period=${selectedPeriod}`, { cache: 'no-store' });
       const json = await res.json();
+      if (id !== requestId.current) return;
       setGainers(json.gainers ?? []);
       setFetchedAt(json.fetchedAt ?? null);
       setError(json.error ?? null);
     } catch {
+      if (id !== requestId.current) return;
       setError('เชื่อมต่อไม่ได้');
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- โหลดครั้งแรกและเมื่อเปลี่ยนจำนวนที่แสดง
-    void load(limit);
-  }, [load, limit]);
+    void load(limit, period);
+  }, [load, limit, period]);
 
   const taken = new Set(existing.map((s) => s.toUpperCase()));
   const topPct = gainers[0]?.changePct ?? 100;
@@ -63,7 +76,7 @@ export function GainersTab({ existing, onAdd }: Props) {
         <div>
           <h2 className="text-[15px] font-semibold text-ink-bright">หุ้นปิดบวก % สูงสุด</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-ink-dim">
-            ทั้งตลาด US จากราคาปิดล่าสุด · ตัด warrant / unit / right ออกแล้ว
+            ทั้งตลาด US · เรียงตาม % การเปลี่ยนแปลงในช่วงที่เลือก · ตัด warrant / unit / right ออกแล้ว
             {fetchedAt &&
               ` · ดึงเมื่อ ${new Date(fetchedAt).toLocaleTimeString('th-TH', {
                 timeZone: 'Asia/Bangkok',
@@ -71,7 +84,22 @@ export function GainersTab({ existing, onAdd }: Props) {
               })}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex overflow-hidden rounded border border-line-strong" aria-label="เลือกช่วงเวลา">
+            {PERIOD_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setPeriod(option.value)}
+                aria-pressed={period === option.value}
+                className={`px-2.5 py-1.5 text-[12px] transition-colors ${
+                  period === option.value ? 'bg-accent text-white' : 'bg-bg text-ink-dim hover:text-ink'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <div className="flex overflow-hidden rounded border border-line-strong">
             {LIMIT_OPTIONS.map((n) => (
               <button
@@ -88,7 +116,7 @@ export function GainersTab({ existing, onAdd }: Props) {
           </div>
           <button
             type="button"
-            onClick={() => void load(limit)}
+            onClick={() => void load(limit, period)}
             className="rounded border border-line-strong bg-bg px-2.5 py-1.5 text-[12px] text-ink-dim hover:text-ink"
           >
             รีเฟรช
@@ -111,7 +139,9 @@ export function GainersTab({ existing, onAdd }: Props) {
               <th className="col-head px-3 py-2 text-left">สัญลักษณ์</th>
               <th className="col-head px-3 py-2 text-right">ราคาปิด</th>
               <th className="col-head px-3 py-2 text-right">มูลค่าตลาด</th>
-              <th className="col-head px-3 py-2 text-right">%</th>
+              <th className="col-head px-3 py-2 text-right">
+                % ({PERIOD_OPTIONS.find((o) => o.value === period)?.label})
+              </th>
               <th className="col-head w-32 px-3 py-2 text-left">ความแรง</th>
               <th className="w-20" />
             </tr>
