@@ -42,6 +42,7 @@ export const mock: Provider = {
     return { prices: out, attempted: symbols };
   },
 
+  // fixture เป็นตัวเลขชุดเดียวกับ Excel ซึ่งผูกกับ 11:30 อยู่แล้ว จึงไม่ขยับตาม endMin
   async fetchWindowSnapshot(symbol) {
     const f = EXCEL_FIXTURE[symbol];
     return f ? { end: f.end, high: Math.max(f.open, f.end) } : null;

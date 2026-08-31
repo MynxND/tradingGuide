@@ -1,4 +1,4 @@
-import { DEFAULT_THRESHOLDS, type Thresholds } from './strategy';
+import { DEFAULT_END_MIN, DEFAULT_THRESHOLDS, toEndMin, type Thresholds } from './strategy';
 import { DEFAULT_SYMBOLS } from './watchlist';
 
 /** ข้อมูลดิบต่อหุ้นที่พอจะคำนวณสูตรใหม่ได้ — เก็บเท่านี้ เกณฑ์เปลี่ยนแล้วผลอัปเดตตาม */
@@ -7,8 +7,10 @@ export type RawQuote = {
   name: string | null;
   open: number | null;
   windowEnd: number | null;
-  /** ราคาสูงสุดในช่วง 20:30–22:30 น. (snapshot เก่าที่บันทึกก่อนมีฟีเจอร์นี้จะเป็น null) */
+  /** ราคาสูงสุดในหน้าต่างที่เลือก (snapshot เก่าที่บันทึกก่อนมีฟีเจอร์นี้จะเป็น null) */
   windowHigh?: number | null;
+  /** true เมื่อ windowHigh อาจต่ำกว่าจริงเพราะแท่งราคาช่วงหัวหน้าต่างขาด */
+  windowHighPartial?: boolean;
 };
 
 /** บันทึกการเทรดจริงของหุ้นตัวหนึ่งในวันหนึ่ง */
@@ -28,6 +30,13 @@ export type Store = {
   lists: Record<string, string[]>;
   /** ผลที่บันทึกไว้ของวันที่ปิดไปแล้ว */
   snapshots: Record<string, RawQuote[]>;
+  /**
+   * นาทีปลายช่วง (ET) ที่ใช้คำนวณสูตร — 690 = 11:30 ET = 22:30 น. ตามไฟล์ Excel เดิม
+   * เปลี่ยนค่านี้แล้วราคาปลายช่วงของทุกวันต้องถูกดึงใหม่ ไม่ใช้ของที่บันทึกไว้
+   */
+  endMin: number;
+  /** เวลาปลายช่วงที่ snapshot แต่ละวันถูกบันทึกไว้ด้วย คีย์เป็นวันที่ */
+  snapshotEndMin: Record<string, number>;
   thresholds: Thresholds;
   onlyOk: boolean;
   /** บันทึกผลจริง คีย์เป็น "YYYY-MM-DD:SYMBOL" */
@@ -42,6 +51,8 @@ export function emptyStore(today: string): Store {
     v: 2,
     lists: { [today]: [...DEFAULT_SYMBOLS] },
     snapshots: {},
+    endMin: DEFAULT_END_MIN,
+    snapshotEndMin: {},
     thresholds: { ...DEFAULT_THRESHOLDS },
     onlyOk: false,
     journal: {},
@@ -63,6 +74,8 @@ export function loadStore(today: string): Store {
         v: 2,
         lists: parsed.lists && Object.keys(parsed.lists).length ? parsed.lists : base.lists,
         snapshots: parsed.snapshots ?? {},
+        endMin: toEndMin(parsed.endMin),
+        snapshotEndMin: parsed.snapshotEndMin ?? {},
         thresholds: parsed.thresholds ?? base.thresholds,
         onlyOk: typeof parsed.onlyOk === 'boolean' ? parsed.onlyOk : false,
         journal: parsed.journal ?? {},
@@ -80,6 +93,8 @@ export function loadStore(today: string): Store {
         v: 2,
         lists: { [today]: old.symbols?.length ? old.symbols : [...DEFAULT_SYMBOLS] },
         snapshots: {},
+        endMin: base.endMin,
+        snapshotEndMin: {},
         thresholds: old.thresholds ?? base.thresholds,
         onlyOk: old.onlyOk ?? false,
         journal: {},
@@ -106,6 +121,8 @@ export function normalizeStore(raw: unknown, today: string): Store | null {
     v: 2,
     lists: Object.keys(r.lists).length > 0 ? r.lists : base.lists,
     snapshots: r.snapshots ?? {},
+    endMin: toEndMin(r.endMin),
+    snapshotEndMin: r.snapshotEndMin ?? {},
     thresholds: r.thresholds ?? base.thresholds,
     onlyOk: typeof r.onlyOk === 'boolean' ? r.onlyOk : false,
     journal: r.journal ?? {},

@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Trading Guide',
-  description: 'คำนวณสูตร Open 20:30 → 22:30 น. อัตโนมัติ ไม่ต้องคีย์ Excel เอง',
+  description: 'คำนวณสูตร Open 20:30 → ปลายช่วงที่เลือก อัตโนมัติ ไม่ต้องคีย์ Excel เอง',
 };
 
 export const viewport: Viewport = {

@@ -1,10 +1,10 @@
 import type { JournalEntry, RawQuote, Store } from './store';
-import { evaluate, type Thresholds } from './strategy';
+import { DEFAULT_END_MIN, evaluate, type Thresholds } from './strategy';
 
 export type SignalRow = {
   date: string;
   symbol: string;
-  /** % ตอน 22:30 ที่ทำให้เกิดสัญญาณ */
+  /** % ตอนปลายช่วงที่ทำให้เกิดสัญญาณ */
   pct: number;
   journal?: JournalEntry;
   /** กำไร/ขาดทุนจริงเป็น % (ต้องมีทั้งราคาเข้าและออก) */
@@ -14,6 +14,11 @@ export type SignalRow = {
 export type Stats = {
   /** สัญญาณ OK ทั้งหมดที่เคยเกิด */
   signals: number;
+  /**
+   * วันที่ถูกข้ามเพราะบันทึกไว้ด้วยเวลาปลายช่วงอื่น
+   * เอามารวมกันไม่ได้ ผลของ 22:30 กับ 23:30 เป็นกลยุทธ์คนละแบบ
+   */
+  skippedDates: string[];
   /** ที่ซื้อจริง */
   taken: number;
   /** ที่ปิดจบแล้ว (มีทั้งเข้าและออก) */
@@ -43,8 +48,15 @@ const mean = (xs: number[]) => (xs.length === 0 ? null : xs.reduce((a, b) => a +
  */
 export function buildStats(store: Store, thresholds: Thresholds): Stats {
   const rows: SignalRow[] = [];
+  const skippedDates: string[] = [];
 
   for (const [date, quotes] of Object.entries(store.snapshots)) {
+    // วันที่บันทึกก่อนมีฟีเจอร์เลือกเวลาไม่มี snapshotEndMin — ถือว่าเป็นค่าตั้งต้น
+    const recorded = store.snapshotEndMin[date] ?? DEFAULT_END_MIN;
+    if (recorded !== store.endMin) {
+      skippedDates.push(date);
+      continue;
+    }
     for (const q of quotes as RawQuote[]) {
       const ev = evaluate(q.open, q.windowEnd, thresholds);
       if (ev.decision !== 'OK' || ev.pct == null) continue;
@@ -83,6 +95,7 @@ export function buildStats(store: Store, thresholds: Thresholds): Stats {
 
   return {
     signals: rows.length,
+    skippedDates: skippedDates.sort((a, b) => b.localeCompare(a)),
     taken: taken.length,
     closed: closed.length,
     wins: wins.length,

@@ -1,5 +1,6 @@
 import { resolveProviders, type LivePrice } from './providers';
-import { etDateString, windowState } from './strategy';
+import type { WindowSnapshot } from './providers/types';
+import { DEFAULT_END_MIN, etDateString, windowState } from './strategy';
 
 export type SymbolQuote = {
   symbol: string;
@@ -7,13 +8,18 @@ export type SymbolQuote = {
   name: string | null;
   /** ราคาเปิด 09:30 ET (20:30 น. ไทย) */
   open: number | null;
-  /** ราคา ณ 11:30 ET (22:30 น. ไทย) — null ถ้ายังไม่ถึงเวลา */
+  /** ราคา ณ นาทีปลายช่วงที่เลือก (ET) — null ถ้ายังไม่ถึงเวลา */
   windowEnd: number | null;
   /** ราคาซื้อขายล่าสุดที่ดึงได้ */
   last: number | null;
   dayHigh: number | null;
-  /** ราคาสูงสุดในช่วง 20:30–22:30 น. (นิ่งแล้วเมื่อพ้นเวลา) */
+  /** ราคาสูงสุดในหน้าต่างที่เลือก (นิ่งแล้วเมื่อพ้นเวลา) */
   windowHigh: number | null;
+  /**
+   * true เมื่อ windowHigh อาจต่ำกว่าจริง เพราะแท่งราคาช่วงหัวหน้าต่างขาด
+   * และ process นี้ก็ไม่ได้เห็นราคาสดตอนช่วงยังไม่จบ (เช่นเพิ่งสตาร์ท server)
+   */
+  windowHighPartial: boolean;
   /** เวลาที่ราคาสดของหุ้นตัวนี้ถูกอัปเดตล่าสุด (epoch ms) */
   updatedAt: number | null;
   error?: string;
@@ -37,7 +43,7 @@ export type QuotesResult = {
 
 /** ถือว่าราคายัง "สด" ภายในกี่มิลลิวินาที */
 const FRESH_MS = 15_000;
-/** ราคา ณ 11:30 นิ่งแล้ว ดึงทีละไม่กี่ตัวต่อรอบเพื่อไม่ชนโควตา */
+/** ราคาปลายช่วงนิ่งแล้ว ดึงทีละไม่กี่ตัวต่อรอบเพื่อไม่ชนโควตา */
 const WINDOW_END_PER_CYCLE = 2;
 
 type Stored = { price: LivePrice; at: number };
@@ -53,8 +59,20 @@ const inflight = new Map<string, Promise<void>>();
 
 let storeDay: string | null = null;
 const liveStore = new Map<string, Stored>();
-/** คีย์ "YYYY-MM-DD:SYMBOL" */
-const windowEndCache = new Map<string, { end: number | null; high: number | null }>();
+/**
+ * คีย์ "YYYY-MM-DD:ENDMIN:SYMBOL"
+ * ต้องมี endMin ในคีย์ ไม่งั้นสลับเวลาปลายช่วงแล้วจะได้ราคาของเวลาเดิมที่แคชไว้
+ */
+const windowEndCache = new Map<string, WindowSnapshot>();
+/**
+ * high สูงสุดที่เห็นจากราคาสดระหว่างที่หน้าต่างยังไม่จบ คีย์ "YYYY-MM-DD:ENDMIN:SYMBOL"
+ *
+ * มีไว้กู้เคสที่ provider ประวัติศาสตร์ให้แท่งไม่ครบช่วงหัว — วัดจริงพบว่า Twelve Data
+ * ไม่มีแท่ง 09:30–09:45 ของวันปัจจุบัน ทำให้ high ที่ได้ต่ำกว่าราคาเปิดด้วยซ้ำ
+ * ระหว่างช่วงเราเห็น dayHigh จาก provider ราคาสดอยู่แล้วทุก 20 วิ จดไว้ไม่กินโควตาเพิ่ม
+ */
+const liveWindowHigh = new Map<string, number>();
+
 /** หุ้นที่ provider ตอบสำเร็จแต่ไม่มีข้อมูลให้ — พักไว้ ไม่ยิงซ้ำทุกรอบให้เปลืองโควตา */
 const misses = new Map<string, { count: number; until: number }>();
 const MISS_BACKOFF_MS = 10 * 60_000;
@@ -62,18 +80,24 @@ const MISS_BACKOFF_MS = 10 * 60_000;
 const nameCache = new Map<string, string | null>();
 const NAMES_PER_CYCLE = 2;
 
-export async function getQuotes(symbols: string[]): Promise<QuotesResult> {
+export async function getQuotes(
+  symbols: string[],
+  endMin: number = DEFAULT_END_MIN,
+): Promise<QuotesResult> {
   const { live: liveProvider, windowEnd: windowEndProvider } = resolveProviders();
   const nowMs = Date.now();
   const nowSec = Math.floor(nowMs / 1000);
   const day = etDateString(nowSec);
-  const state = windowState(nowSec);
+  const state = windowState(nowSec, endMin);
 
   // ข้ามวันซื้อขายแล้วราคาเก่าใช้ไม่ได้
   if (storeDay !== day) {
     liveStore.clear();
+    liveWindowHigh.clear();
     storeDay = day;
   }
+
+  const highKey = (symbol: string) => `${day}:${endMin}:${symbol}`;
 
   let warning: string | undefined;
 
@@ -120,19 +144,36 @@ export async function getQuotes(symbols: string[]): Promise<QuotesResult> {
 
   if (waitFor.length > 0) await Promise.all(waitFor);
 
-  // ราคาปิดหน้าต่างดึงครั้งเดียวต่อหุ้นต่อวัน และเฉพาะเมื่อเลย 11:30 ET แล้ว
+  // ราคาปิดหน้าต่างดึงครั้งเดียวต่อหุ้นต่อวันต่อเวลาปลายช่วง และเฉพาะเมื่อพ้นเวลาแล้ว
   if (state === 'after') {
     const missing = symbols
-      .filter((s) => !windowEndCache.has(`${day}:${s}`))
+      .filter((s) => !windowEndCache.has(`${day}:${endMin}:${s}`))
       .slice(0, WINDOW_END_PER_CYCLE);
     for (const symbol of missing) {
       try {
-        const snap = await windowEndProvider.fetchWindowSnapshot(symbol);
-        windowEndCache.set(`${day}:${symbol}`, { end: snap?.end ?? null, high: snap?.high ?? null });
+        const snap = await windowEndProvider.fetchWindowSnapshot(symbol, endMin);
+        windowEndCache.set(`${day}:${endMin}:${symbol}`, {
+          end: snap?.end ?? null,
+          high: snap?.high ?? null,
+          highPartial: snap?.highPartial ?? true,
+        });
       } catch (err) {
         // ดึงไม่ได้ก็ใช้ราคาล่าสุดไปก่อน แล้วลองใหม่รอบหน้า
         warning ??= err instanceof Error ? err.message : undefined;
       }
+    }
+  }
+
+  /**
+   * ยังอยู่ในช่วง: จดราคาสูงสุดที่เห็นไว้ก่อน
+   * ต้องจดตอนนี้เท่านั้น พ้นเวลาแล้ว dayHigh จะรวมราคาหลังหน้าต่างเข้ามาด้วยและใช้ไม่ได้
+   */
+  if (state === 'live') {
+    for (const symbol of symbols) {
+      const high = liveStore.get(symbol)?.price.dayHigh;
+      if (high == null) continue;
+      const seen = liveWindowHigh.get(highKey(symbol));
+      if (seen == null || high > seen) liveWindowHigh.set(highKey(symbol), high);
     }
   }
 
@@ -152,7 +193,20 @@ export async function getQuotes(symbols: string[]): Promise<QuotesResult> {
 
   const quotes: SymbolQuote[] = symbols.map((symbol) => {
     const stored = liveStore.get(symbol);
-    const snap = state === 'after' ? windowEndCache.get(`${day}:${symbol}`) : undefined;
+    const snap = state === 'after' ? windowEndCache.get(`${day}:${endMin}:${symbol}`) : undefined;
+    const seenLive = liveWindowHigh.get(highKey(symbol)) ?? null;
+
+    /**
+     * ยังไม่พ้นช่วง: high ของวันคือ high ของช่วงนี้อยู่แล้ว
+     * พ้นช่วงแล้ว: ใช้ค่าที่คิดจากแท่งในช่วง แต่ต้อง max กับค่าที่เราเห็นเองตอนช่วงยังไม่จบ
+     * เพราะแท่งจาก provider อาจขาดช่วงหัวไป (วัดจริง: ขาด 09:30–09:45 ของวันปัจจุบัน)
+     */
+    const candidates = snap
+      ? [snap.high, seenLive]
+      : [stored?.price.dayHigh ?? null, seenLive];
+    const highs = candidates.filter((n): n is number => n != null);
+    const windowHigh = highs.length > 0 ? Math.max(...highs) : null;
+
     return {
       symbol,
       name: stored?.price.name ?? nameCache.get(symbol) ?? null,
@@ -160,9 +214,9 @@ export async function getQuotes(symbols: string[]): Promise<QuotesResult> {
       windowEnd: snap?.end ?? null,
       last: stored?.price.last ?? null,
       dayHigh: stored?.price.dayHigh ?? null,
-      // ยังไม่พ้นช่วง: high ของวันคือ high ของช่วงนี้อยู่แล้ว
-      // พ้นช่วงแล้ว: ต้องใช้ค่าที่คิดจากแท่งในช่วงเท่านั้น
-      windowHigh: snap ? snap.high : stored?.price.dayHigh ?? null,
+      windowHigh,
+      // ธงขึ้นเฉพาะเมื่อแท่งขาดช่วงหัว *และ* เราก็ไม่ได้เห็นราคาสดตอนช่วงยังไม่จบ
+      windowHighPartial: Boolean(snap?.highPartial) && seenLive == null,
       updatedAt: stored?.at ?? null,
       error: stored ? undefined : warning ?? 'ยังไม่มีข้อมูล',
     };

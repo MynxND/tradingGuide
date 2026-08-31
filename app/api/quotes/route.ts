@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getQuotes } from '@/lib/quotes';
+import { toEndMin } from '@/lib/strategy';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const raw = new URL(request.url).searchParams.get('symbols') ?? '';
+  const params = new URL(request.url).searchParams;
+  const raw = params.get('symbols') ?? '';
+  const endMin = toEndMin(params.get('end'));
   const symbols = [
     ...new Set(
       raw
@@ -19,7 +22,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await getQuotes(symbols);
+    const result = await getQuotes(symbols, endMin);
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     return NextResponse.json(

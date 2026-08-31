@@ -1,5 +1,8 @@
-import { SESSION_END_MIN, SESSION_START_MIN, etMinuteOfDay } from '../strategy';
+import { SESSION_START_MIN, etMinuteOfDay } from '../strategy';
 import type { LiveResult, LivePrice, Provider } from './types';
+
+/** แท่งแรกช้ากว่านาทีเปิดได้ไม่เกินเท่านี้ ก่อนจะถือว่า high ครอบช่วงไม่ครบ */
+const COVERAGE_TOLERANCE_MIN = 2;
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36';
@@ -61,24 +64,31 @@ export const yahoo: Provider = {
     return { prices: out, attempted };
   },
 
-  async fetchWindowSnapshot(symbol) {
+  async fetchWindowSnapshot(symbol, endMin) {
     const result = await chart(symbol);
     const ts: number[] = result.timestamp ?? [];
     const q = result.indicators?.quote?.[0] ?? {};
     let end: number | null = null;
     let fallback: number | null = null;
     let high: number | null = null;
+    let firstMinute: number | null = null;
 
     for (let i = 0; i < ts.length; i++) {
       const minute = etMinuteOfDay(ts[i]);
-      if (minute < SESSION_START_MIN || minute > SESSION_END_MIN) continue;
+      if (minute < SESSION_START_MIN || minute > endMin) continue;
 
       const barHigh = q.high?.[i];
-      if (typeof barHigh === 'number') high = high === null ? barHigh : Math.max(high, barHigh);
+      if (typeof barHigh === 'number') {
+        high = high === null ? barHigh : Math.max(high, barHigh);
+        if (firstMinute === null || minute < firstMinute) firstMinute = minute;
+      }
 
-      if (minute === SESSION_END_MIN && end === null) end = q.open?.[i] ?? q.close?.[i] ?? null;
-      else if (minute < SESSION_END_MIN && q.close?.[i] != null) fallback = q.close[i];
+      if (minute === endMin && end === null) end = q.open?.[i] ?? q.close?.[i] ?? null;
+      else if (minute < endMin && q.close?.[i] != null) fallback = q.close[i];
     }
-    return { end: end ?? fallback, high };
+    // ขาดแท่งช่วงหัว = high ต่ำกว่าจริงได้ ต้องบอกชั้นบนไม่ให้เชื่อเต็มร้อย
+    const highPartial =
+      firstMinute === null || firstMinute > SESSION_START_MIN + COVERAGE_TOLERANCE_MIN;
+    return { end: end ?? fallback, high, highPartial };
   },
 };

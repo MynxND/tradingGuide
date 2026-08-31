@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getHistory } from '@/lib/history';
+import { toEndMin } from '@/lib/strategy';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const date = params.get('date') ?? '';
+  const endMin = toEndMin(params.get('end'));
   const symbols = [
     ...new Set(
       (params.get('symbols') ?? '')
@@ -23,7 +25,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await getHistory(date, symbols);
+    const result = await getHistory(date, symbols, endMin);
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     return NextResponse.json(

@@ -4,17 +4,17 @@ import type { Stats } from '@/lib/stats';
 import { formatThaiDate } from '@/lib/session-date';
 import { QuoteStat, fmtSigned, toneClass } from './ui';
 
-type Props = { stats: Stats; onOpenDate(date: string): void };
+type Props = { stats: Stats; endLabel: string; onOpenDate(date: string): void };
 
 const pctText = (v: number | null, digits = 0) => (v == null ? '—' : `${v.toFixed(digits)}%`);
 
-export function StatsTab({ stats, onOpenDate }: Props) {
+export function StatsTab({ stats, endLabel, onOpenDate }: Props) {
   if (stats.signals === 0) {
     return (
       <section className="mt-4 rounded-md border border-line bg-panel px-4 py-10 text-center">
         <p className="text-[13px] text-ink">ยังไม่มีสัญญาณ OK ที่บันทึกไว้</p>
         <p className="mt-2 text-[11px] leading-relaxed text-ink-dim">
-          สถิติจะเริ่มมีข้อมูลเมื่อผ่าน 22:30 น. ไปแล้วและมีหุ้นเข้าเกณฑ์
+          สถิติจะเริ่มมีข้อมูลเมื่อผ่าน {endLabel} ไปแล้วและมีหุ้นเข้าเกณฑ์
           <br />
           กรอกราคาเข้า-ออกในแท็บ &ldquo;สูตรของฉัน&rdquo; แล้วกลับมาดูที่นี่
         </p>
@@ -24,6 +24,12 @@ export function StatsTab({ stats, onOpenDate }: Props) {
 
   return (
     <section className="mt-4">
+      {stats.skippedDates.length > 0 && (
+        <p className="mb-3 rounded-md border border-[var(--tv-warn)]/30 bg-[var(--tv-warn-soft)] px-3 py-2 text-[12px] text-warn">
+          ข้าม {stats.skippedDates.length} วันที่บันทึกไว้ด้วยเวลาปลายช่วงอื่น — สถิติด้านล่างนับเฉพาะ
+          {' '}{endLabel} เท่านั้น เปิดวันเหล่านั้นแล้วกด &ldquo;ดึงข้อมูลย้อนหลัง&rdquo; เพื่อคิดใหม่ตามเวลานี้
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-x-6 divide-line border-b border-line sm:grid-cols-5 sm:gap-x-0 sm:divide-x">
         <QuoteStat label="สัญญาณ OK ทั้งหมด" value={String(stats.signals)} tone="accent" />
         <QuoteStat label="ซื้อจริง" value={String(stats.taken)} />

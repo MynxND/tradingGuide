@@ -15,10 +15,12 @@
 export const SESSION = {
   /** ตลาด US เปิด 09:30 ET = 20:30 น. ไทย */
   startEt: { hour: 9, minute: 30 },
-  /** จุดวัดผล 11:30 ET = 22:30 น. ไทย */
+  /** จุดวัดผลตั้งต้นตามไฟล์ Excel — 11:30 ET = 22:30 น. ไทย (ผู้ใช้เลือกเปลี่ยนได้) */
   endEt: { hour: 11, minute: 30 },
   timeZone: 'America/New_York',
 } as const;
+
+export const VIEWER_TIME_ZONE = 'Asia/Bangkok';
 
 export const DEFAULT_THRESHOLDS = { min: 5.5, max: 30 } as const;
 
@@ -68,7 +70,66 @@ export function etParts(epochSeconds: number) {
 const asMinutes = (t: { hour: number; minute: number }) => t.hour * 60 + t.minute;
 
 export const SESSION_START_MIN = asMinutes(SESSION.startEt);
-export const SESSION_END_MIN = asMinutes(SESSION.endEt);
+/**
+ * จุดวัดผลตั้งต้น — ไม่ใช่ค่าคงที่ของระบบอีกแล้ว
+ *
+ * ผู้ใช้เลือกปลายช่วงได้ (21:00–03:00 น. ไทย) ทุกชั้นที่คิดผลจึงต้องรับ endMin เข้ามา
+ * เก็บเป็น "นาทีของวันตามเวลา ET" ไม่ใช่เวลาไทย เพราะเดือน พ.ย. สหรัฐเปลี่ยนเป็น EST
+ * ถ้าเก็บเป็นเวลาไทยจุดวัดผลจะเลื่อนไป 1 ชม.เทียบกับตลาดโดยที่สูตรไม่รู้ตัว
+ */
+export const DEFAULT_END_MIN = asMinutes(SESSION.endEt);
+/** ตลาด US ปิด 16:00 ET — เลือกเกินนี้ไม่มีแท่งราคาให้คิด */
+const MARKET_CLOSE_MIN = 16 * 60;
+
+/** ตัวเลือกปลายช่วงทุกครึ่งชั่วโมง ตั้งแต่ 30 นาทีหลังเปิดจนถึงเวลาปิดตลาด */
+export const END_MIN_OPTIONS: number[] = (() => {
+  const out: number[] = [];
+  for (let m = SESSION_START_MIN + 30; m <= MARKET_CLOSE_MIN; m += 30) out.push(m);
+  return out;
+})();
+
+export function isEndMin(value: number | null | undefined): value is number {
+  return typeof value === 'number' && END_MIN_OPTIONS.includes(value);
+}
+
+/** normalise ค่าที่มาจาก query string / ที่เก็บไว้ ให้ปลอดภัยก่อนใช้คำนวณ */
+export function toEndMin(value: string | number | null | undefined): number {
+  const n = typeof value === 'string' ? Number(value) : value;
+  return isEndMin(n) ? n : DEFAULT_END_MIN;
+}
+
+export const minuteLabel = (minute: number) =>
+  `${String(Math.floor(minute / 60) % 24).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+
+/** offset ของ timezone ณ เวลานั้น (นาที) — ใช้แปลงเวลา ET ↔ ไทยให้ถูกทั้ง EDT และ EST */
+function tzOffsetMinutes(timeZone: string, at: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(at);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? NaN);
+  const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'));
+  return (asUtc - Math.floor(at.getTime() / 60_000) * 60_000) / 60_000;
+}
+
+/**
+ * นาที ET → นาทีตามเวลาไทยของวันเดียวกัน (อาจเกิน 24:00 เมื่อข้ามเที่ยงคืน)
+ * คิดจาก offset จริงของวันนั้น ป้ายเวลาจึงยังถูกหลังสหรัฐเปลี่ยน DST
+ */
+export function etMinuteToViewer(minute: number, at: Date = new Date()) {
+  const diff = tzOffsetMinutes(VIEWER_TIME_ZONE, at) - tzOffsetMinutes(SESSION.timeZone, at);
+  return minute + diff;
+}
+
+/** ป้ายเวลาแบบที่ผู้ใช้อ่าน เช่น "22:30 น. (11:30 ET)" */
+export function endMinLabel(minute: number, at: Date = new Date()) {
+  return `${minuteLabel(etMinuteToViewer(minute, at))} น. (${minuteLabel(minute)} ET)`;
+}
 
 /** นาทีของวันตามเวลา ET */
 export function etMinuteOfDay(epochSeconds: number) {
@@ -77,10 +138,10 @@ export function etMinuteOfDay(epochSeconds: number) {
 
 export type WindowState = 'before' | 'live' | 'after';
 
-export function windowState(epochSeconds: number): WindowState {
+export function windowState(epochSeconds: number, endMin = DEFAULT_END_MIN): WindowState {
   const m = etMinuteOfDay(epochSeconds);
   if (m < SESSION_START_MIN) return 'before';
-  if (m < SESSION_END_MIN) return 'live';
+  if (m < endMin) return 'live';
   return 'after';
 }
 

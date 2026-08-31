@@ -16,7 +16,16 @@ import {
   type Store,
 } from '@/lib/store';
 import { WORKSPACE_ID } from '@/lib/workspace';
-import { evaluate, windowState, type Decision } from '@/lib/strategy';
+import {
+  DEFAULT_END_MIN,
+  END_MIN_OPTIONS,
+  endMinLabel,
+  etMinuteToViewer,
+  evaluate,
+  minuteLabel,
+  windowState,
+  type Decision,
+} from '@/lib/strategy';
 import { DateBar } from './DateBar';
 import { ExportButton, type ExportRow } from './ExportButton';
 import { GainersTab } from './GainersTab';
@@ -38,11 +47,11 @@ const FALLBACK_REFRESH_MS = 60_000;
 const HISTORY_POLL_MS = 8_000;
 
 type Row = RawQuote & {
-  /** ราคาล่าสุด แสดงแยกจากราคา 22:30 และใช้แทนค่าชั่วคราวก่อนถึงเวลา */
+  /** ราคาล่าสุด แสดงแยกจากราคาปลายช่วง และใช้แทนค่าชั่วคราวก่อนถึงเวลา */
   last: number | null;
   diff: number | null;
   pct: number | null;
-  /** % จาก Open ถึง High ในช่วง — บอกว่าเคยขึ้นไปถึงไหนก่อนจะจบที่ 22:30 */
+  /** % จาก Open ถึง High ในช่วง — บอกว่าเคยขึ้นไปถึงไหนก่อนจะจบที่ปลายช่วง */
   highPct: number | null;
   decision: Decision;
   provisional: boolean;
@@ -153,7 +162,7 @@ export default function Page() {
   const isToday = date === today;
   const snapshot = store.snapshots[date];
 
-  const load = useCallback(async (list: string[]) => {
+  const load = useCallback(async (list: string[], endMin: number) => {
     if (list.length === 0) {
       setQuotes([]);
       setLoading(false);
@@ -163,7 +172,7 @@ export default function Page() {
     const controller = new AbortController();
     abort.current = controller;
     try {
-      const res = await fetch(`/api/quotes?symbols=${list.join(',')}`, {
+      const res = await fetch(`/api/quotes?symbols=${list.join(',')}&end=${endMin}`, {
         signal: controller.signal,
         cache: 'no-store',
       });
@@ -188,10 +197,11 @@ export default function Page() {
       setLoading(false);
       return;
     }
-    void load(symbols);
-    const id = setInterval(() => void load(symbols), refreshMs);
+    // เปลี่ยนเวลาปลายช่วงแล้วต้องดึงใหม่ทันที ไม่ใช่รอรอบรีเฟรชถัดไป
+    void load(symbols, store.endMin);
+    const id = setInterval(() => void load(symbols, store.endMin), refreshMs);
     return () => clearInterval(id);
-  }, [hydrated, isToday, symbols, load, refreshMs]);
+  }, [hydrated, isToday, symbols, load, refreshMs, store.endMin]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- เวลาปัจจุบันเรนเดอร์ฝั่ง server ไม่ได้
@@ -213,7 +223,7 @@ export default function Page() {
     return () => clearInterval(id);
   }, []);
 
-  const state = now ? windowState(Math.floor(now.getTime() / 1000)) : null;
+  const state = now ? windowState(Math.floor(now.getTime() / 1000), store.endMin) : null;
 
   /** ข้อมูลดิบของวันที่กำลังดู */
   const raws: Array<RawQuote & { last: number | null; error?: string }> = useMemo(() => {
@@ -226,6 +236,7 @@ export default function Page() {
       open: q.open,
       windowEnd: q.windowEnd,
       windowHigh: q.windowHigh,
+      windowHighPartial: q.windowHighPartial,
       last: q.last,
       error: q.error,
     }));
@@ -275,9 +286,19 @@ export default function Page() {
         open: q.open,
         windowEnd: q.windowEnd ?? q.last,
         windowHigh: q.windowHigh,
+        windowHighPartial: q.windowHighPartial,
       }));
-      if (JSON.stringify(prev.snapshots[today]) === JSON.stringify(next)) return prev;
-      return { ...prev, snapshots: { ...prev.snapshots, [today]: next } };
+      if (
+        JSON.stringify(prev.snapshots[today]) === JSON.stringify(next) &&
+        prev.snapshotEndMin[today] === prev.endMin
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        snapshots: { ...prev.snapshots, [today]: next },
+        snapshotEndMin: { ...prev.snapshotEndMin, [today]: prev.endMin },
+      };
     });
   }, [hydrated, isToday, quotes, today]);
 
@@ -340,7 +361,7 @@ export default function Page() {
     setBackfill({ pending: symbols.length });
     for (let guard = 0; guard < 40; guard++) {
       const res = await fetch(
-        `/api/history?date=${date}&symbols=${symbols.join(',')}`,
+        `/api/history?date=${date}&symbols=${symbols.join(',')}&end=${store.endMin}`,
         { cache: 'no-store' },
       );
       const json = await res.json();
@@ -352,6 +373,8 @@ export default function Page() {
         setStore((prev) => ({
           ...prev,
           snapshots: { ...prev.snapshots, [date]: json.quotes as RawQuote[] },
+          // จดไว้ว่า snapshot ชุดนี้เป็นของเวลาปลายช่วงไหน เปลี่ยนเวลาแล้วจะรู้ว่าต้องดึงใหม่
+          snapshotEndMin: { ...prev.snapshotEndMin, [date]: store.endMin },
         }));
       }
       if (!json.pending) {
@@ -362,7 +385,23 @@ export default function Page() {
       await new Promise((r) => setTimeout(r, HISTORY_POLL_MS));
     }
     setBackfill(null);
-  }, [date, symbols]);
+  }, [date, symbols, store.endMin]);
+
+  /**
+   * วันย้อนหลังที่บันทึกไว้ด้วยเวลาปลายช่วงอื่น ใช้คำนวณตามเวลาที่เลือกอยู่ไม่ได้
+   * ต้องดึงราคาของเวลาใหม่มาแทน — ทำให้เฉพาะวันที่กำลังเปิดดู ไม่ยิงทุกวันรวดเดียว
+   * เพื่อไม่ให้โควตา Twelve Data หมดจากการกดเปลี่ยนเวลาเล่น ๆ
+   */
+  const staleSnapshot =
+    !isToday &&
+    (snapshot?.length ?? 0) > 0 &&
+    (store.snapshotEndMin[date] ?? DEFAULT_END_MIN) !== store.endMin;
+
+  useEffect(() => {
+    if (!hydrated || !staleSnapshot || backfill !== null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ดึงราคาของเวลาใหม่มาแทนของเก่า
+    void runBackfill();
+  }, [hydrated, staleSnapshot, backfill, runBackfill]);
 
   const buildDays = useCallback(
     (scope: 'current' | 'all') => {
@@ -434,7 +473,7 @@ export default function Page() {
             <span className="hidden text-[11px] text-ink-dim sm:inline">US Equities</span>
           </div>
 
-          <MarketStatus state={state} />
+          <MarketStatus state={state} endMin={store.endMin} />
 
           <div className="ml-auto flex items-center gap-4">
             <div className="text-right">
@@ -485,6 +524,7 @@ export default function Page() {
         {tab === 'stats' && (
           <StatsTab
             stats={stats}
+            endLabel={`${minuteLabel(etMinuteToViewer(store.endMin))} น.`}
             onOpenDate={(d) => {
               setDate(d);
               setTab('formula');
@@ -524,6 +564,10 @@ export default function Page() {
             </div>
 
             <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3 rounded-md border border-line bg-panel px-4 py-3">
+              <EndMinField
+                value={store.endMin}
+                onChange={(v) => setStore((p) => ({ ...p, endMin: v }))}
+              />
               <NumField
                 label="เกณฑ์ต่ำสุด %"
                 value={store.thresholds.min}
@@ -550,7 +594,7 @@ export default function Page() {
                 เฉพาะที่ซื้อได้
               </label>
               <div className="self-end">
-                <ExportButton buildDays={buildDays} thresholds={store.thresholds} />
+                <ExportButton buildDays={buildDays} thresholds={store.thresholds} endMin={store.endMin} />
               </div>
             </div>
 
@@ -575,7 +619,7 @@ export default function Page() {
               <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md border border-accent/30 bg-accent/10 px-4 py-3 text-[12px]">
                 <span className="text-ink">
                   {formatThaiDate(date)} มีลิสต์ {symbols.length} ตัว แต่ยังไม่มีผล —
-                  ดึงราคา 20:30 และ 22:30 ของวันนั้นย้อนหลังได้
+                  ดึงราคา 20:30 และ {minuteLabel(etMinuteToViewer(store.endMin))} ของวันนั้นย้อนหลังได้
                 </span>
                 <button
                   type="button"
@@ -612,7 +656,9 @@ export default function Page() {
                   <tr className="border-b border-line bg-panel-alt">
                     <th className="col-head px-3 py-2 text-left">สัญลักษณ์</th>
                     <th className="col-head px-3 py-2 text-right">Open 20:30</th>
-                    <th className="col-head px-3 py-2 text-right">ราคา 22:30</th>
+                    <th className="col-head px-3 py-2 text-right">
+                      ราคา {minuteLabel(etMinuteToViewer(store.endMin))}
+                    </th>
                     <th className="col-head px-3 py-2 text-right">ราคา Live</th>
                     <th className="col-head px-3 py-2 text-right">High ช่วง</th>
                     <th className="col-head px-3 py-2 text-right">เปลี่ยนแปลง</th>
@@ -653,7 +699,17 @@ export default function Page() {
                         )}
                       </td>
                       <td className="num px-3 py-2 text-right text-[13px]">
-                        <span className="text-ink">{fmtPrice(r.windowHigh ?? null)}</span>
+                        <span
+                          className="text-ink"
+                          title={
+                            r.windowHighPartial
+                              ? 'ต้นทางไม่มีแท่งราคาช่วงต้นหน้าต่าง ค่านี้อาจต่ำกว่าจริง'
+                              : undefined
+                          }
+                        >
+                          {r.windowHighPartial && r.windowHigh != null && '≥'}
+                          {fmtPrice(r.windowHigh ?? null)}
+                        </span>
                         {r.highPct != null && (
                           <span className="ml-1.5 text-[11px] text-ink-dim">
                             {fmtSigned(r.highPct, 1)}%
@@ -738,6 +794,7 @@ export default function Page() {
                   row={r}
                   max={store.thresholds.max}
                   min={store.thresholds.min}
+                  endMin={store.endMin}
                   onRemove={() => removeSymbol(r.symbol)}
                 />
               ))}
@@ -753,7 +810,8 @@ export default function Page() {
                 ลิสต์หุ้นแยกตามวันซื้อขาย · ผลของวันที่ผ่านไปแล้วถูกบันทึกไว้ในเครื่อง เปลี่ยนเกณฑ์แล้วคำนวณใหม่ให้ทุกวัน
               </p>
               <p>
-                ราคา 22:30 จะล็อกเพื่อคำนวณผลเมื่อพ้นเวลา · ราคา Live ยังอัปเดตต่อและไม่กระทบผลสูตร
+                ราคา {minuteLabel(etMinuteToViewer(store.endMin))} จะล็อกเพื่อคำนวณผลเมื่อพ้นเวลา ·
+                ราคา Live ยังอัปเดตต่อและไม่กระทบผลสูตร
               </p>
               <p>ข้อมูลราคาเพื่อการติดตามเท่านั้น ไม่ใช่คำแนะนำการลงทุน</p>
             </footer>
@@ -828,11 +886,17 @@ function JournalCell({
   );
 }
 
-function MarketStatus({ state }: { state: 'before' | 'live' | 'after' | null }) {
+function MarketStatus({
+  state,
+  endMin,
+}: {
+  state: 'before' | 'live' | 'after' | null;
+  endMin: number;
+}) {
   if (!state) return null;
   const map = {
     before: ['ยังไม่เปิดตลาด', 'bg-ink-dim', 'text-ink-dim'],
-    live: ['อยู่ในช่วง 20:30–22:30', 'bg-up', 'text-up'],
+    live: [`อยู่ในช่วง 20:30–${minuteLabel(etMinuteToViewer(endMin))}`, 'bg-up', 'text-up'],
     after: ['พ้นช่วงแล้ว', 'bg-accent', 'text-ink'],
   } as const;
   const [label, dot, text] = map[state];
@@ -848,6 +912,31 @@ function DecisionPill({ decision }: { decision: Decision }) {
   if (decision === 'OK') return <Pill tone="up">ซื้อได้</Pill>;
   if (decision === 'NG') return <Pill tone="neutral">ไม่ซื้อ</Pill>;
   return <Pill tone="warn">รอข้อมูล</Pill>;
+}
+
+/**
+ * ตัวเลือกเวลาปลายช่วงที่ใช้คำนวณสูตร
+ *
+ * โชว์ทั้งเวลาไทยและเวลา ET เพราะค่าที่เก็บคือนาที ET — เดือน พ.ย. สหรัฐเปลี่ยนเป็น EST
+ * แล้วป้ายเวลาไทยจะเลื่อนไป 1 ชม.เอง ซึ่งถูกต้อง ผู้ใช้ต้องเห็นว่าจุดวัดผลผูกกับตลาด
+ */
+function EndMinField({ value, onChange }: { value: number; onChange(v: number): void }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="col-head">ปลายช่วงที่ใช้คำนวณ</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="h-9 rounded border border-line-strong bg-bg px-2 text-[13px] text-ink-bright outline-none focus:border-accent"
+      >
+        {END_MIN_OPTIONS.map((m) => (
+          <option key={m} value={m}>
+            {endMinLabel(m)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 function NumField({
@@ -877,11 +966,13 @@ function MobileRow({
   row,
   max,
   min,
+  endMin,
   onRemove,
 }: {
   row: Row;
   max: number;
   min: number;
+  endMin: number;
   onRemove(): void;
 }) {
   return (
@@ -920,7 +1011,7 @@ function MobileRow({
           Open <span className="num ml-1 text-ink">{fmtPrice(row.open)}</span>
         </span>
         <span>
-          22:30{' '}
+          {minuteLabel(etMinuteToViewer(endMin))}{' '}
           <span className="num ml-1 text-ink-bright">{fmtPrice(row.windowEnd ?? row.last)}</span>
           {row.provisional && row.last != null && <span className="ml-1 text-[10px]">LIVE</span>}
         </span>
@@ -931,7 +1022,11 @@ function MobileRow({
         )}
         {row.windowHigh != null && (
           <span>
-            High <span className="num ml-1 text-ink">{fmtPrice(row.windowHigh)}</span>
+            High{' '}
+            <span className="num ml-1 text-ink">
+              {row.windowHighPartial && '≥'}
+              {fmtPrice(row.windowHigh)}
+            </span>
             {row.highPct != null && (
               <span className="num ml-1 text-[10px]">{fmtSigned(row.highPct, 1)}%</span>
             )}

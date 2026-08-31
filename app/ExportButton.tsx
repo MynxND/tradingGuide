@@ -18,9 +18,11 @@ type Props = {
   /** ฟังก์ชันสร้างข้อมูลตอนกด เพื่อไม่ต้องคำนวณทุกวันไว้ล่วงหน้า */
   buildDays(scope: 'current' | 'all'): Array<{ date: string; rows: ExportRow[] }>;
   thresholds: Thresholds;
+  /** นาทีปลายช่วง (ET) ที่ใช้คำนวณ ส่งไปให้ไฟล์ตั้งหัวคอลัมน์ตามเวลานั้น */
+  endMin: number;
 };
 
-export function ExportButton({ buildDays, thresholds }: Props) {
+export function ExportButton({ buildDays, thresholds, endMin }: Props) {
   const [busy, setBusy] = useState<'current' | 'all' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +39,7 @@ export function ExportButton({ buildDays, thresholds }: Props) {
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ days, thresholds }),
+        body: JSON.stringify({ days, thresholds, endMin }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? 'export ไม่สำเร็จ');
 

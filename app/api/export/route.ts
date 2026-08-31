@@ -1,6 +1,6 @@
 import ExcelJS from 'exceljs';
 import { NextResponse } from 'next/server';
-import { DEFAULT_THRESHOLDS } from '@/lib/strategy';
+import { DEFAULT_THRESHOLDS, SESSION_START_MIN, etMinuteToViewer, minuteLabel, toEndMin } from '@/lib/strategy';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,13 +20,15 @@ type ExportDay = { date: string; rows: ExportRow[] };
 type Body = {
   days?: ExportDay[];
   thresholds?: { min: number; max: number };
+  /** นาทีปลายช่วง (ET) ที่ใช้คำนวณ — ใส่ในหัวคอลัมน์ให้ไฟล์บอกตัวเองว่าเป็นของเวลาไหน */
+  endMin?: number;
 };
 
-const HEADERS = [
+const headers = (endMin: number) => [
   { header: 'Name', key: 'symbol', width: 12 },
   { header: 'บริษัท', key: 'name', width: 34 },
-  { header: 'Open 20:30', key: 'open', width: 13 },
-  { header: 'ราคา 22:30', key: 'end', width: 13 },
+  { header: `Open ${minuteLabel(etMinuteToViewer(SESSION_START_MIN))}`, key: 'open', width: 13 },
+  { header: `ราคา ${minuteLabel(etMinuteToViewer(endMin))}`, key: 'end', width: 13 },
   { header: 'High ช่วง', key: 'high', width: 13 },
   { header: 'Diff', key: 'diff', width: 12 },
   { header: '%', key: 'pct', width: 10 },
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
   }
 
   const th = body.thresholds ?? { ...DEFAULT_THRESHOLDS };
+  const HEADERS = headers(toEndMin(body.endMin));
 
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Trading Guide';
