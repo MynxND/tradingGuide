@@ -128,3 +128,29 @@ export function finnhub(apiKey: string): Provider {
     },
   };
 }
+
+/** ราคาล่าสุด + ราคาปิดวันก่อน (ปรับ split แล้ว) ของหุ้นตัวเดียว */
+export type DailyChange = { last: number; prevClose: number; changePct: number };
+
+/**
+ * ใช้ตรวจ % รายวันที่ได้จาก screener
+ *
+ * screener ของ TradingView ไม่ปรับ prevClose ตาม reverse split หุ้นที่เพิ่งรวมพาร์
+ * จึงโชว์ +3000% ทั้งที่จริงลง 4% (วัดจริง: HCWC prevClose 0.2413 แต่ของจริง 8.4455)
+ * Finnhub ปรับ split ให้แล้ว เอามาเทียบเพื่อคัดตัวปลอมออกก่อนแสดง
+ */
+export async function finnhubDailyChange(
+  apiKey: string,
+  symbol: string,
+): Promise<DailyChange | null> {
+  if (allowance() < 1) return null;
+  const url = `${BASE}/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
+  chargeIfUpstream(url, LIVE_TTL_S * 1000);
+  const res = await fetch(url, { next: { revalidate: LIVE_TTL_S } });
+  if (!res.ok) throw new Error(res.status === 429 ? 'Finnhub เกินโควตา (429)' : `Finnhub ตอบ ${res.status}`);
+  const q = await res.json();
+  const last = typeof q?.c === 'number' ? q.c : 0;
+  const prevClose = typeof q?.pc === 'number' ? q.pc : 0;
+  if (last <= 0 || prevClose <= 0) return null;
+  return { last, prevClose, changePct: ((last - prevClose) / prevClose) * 100 };
+}

@@ -20,11 +20,18 @@ type Props = {
 
 const LIMIT_OPTIONS = [20, 50, 100];
 const PERIOD_OPTIONS: { value: GainerPeriod; label: string }[] = [
-  { value: '30m', label: '30 นาที' },
-  { value: '1h', label: '1 ชั่วโมง' },
+  { value: '3m', label: '3 นาที' },
+  { value: '5m', label: '5 นาที' },
   { value: '1d', label: '1 วัน' },
   { value: '5d', label: '5 วัน' },
+  { value: '1mo', label: '1 เดือน' },
 ];
+
+/** ต้นทางสำรองดีเลย์กว่าและไม่มีช่วงนาที ต้องบอกผู้ใช้เมื่อไม่ได้ใช้ตัวหลัก */
+const SOURCE_NOTE: Record<string, string> = {
+  tradingview: 'ต้นทางอันดับหลักล่ม กำลังใช้ TradingView สำรอง (ดีเลย์ ~15 นาที)',
+  nasdaq: 'ต้นทางอันดับหลักล่ม กำลังใช้ NASDAQ สำรอง (ข้อมูลรายวัน อัปเดตช้า)',
+};
 
 const fmtCap = (n: number | null) => {
   if (n == null || n === 0) return '—';
@@ -41,6 +48,7 @@ export function GainersTab({ existing, onAdd }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  const [source, setSource] = useState<string | null>(null);
   const requestId = useRef(0);
 
   const load = useCallback(async (n: number, selectedPeriod: GainerPeriod) => {
@@ -53,6 +61,7 @@ export function GainersTab({ existing, onAdd }: Props) {
       if (id !== requestId.current) return;
       setGainers(json.gainers ?? []);
       setFetchedAt(json.fetchedAt ?? null);
+      setSource(json.source ?? null);
       setError(json.error ?? null);
     } catch {
       if (id !== requestId.current) return;
@@ -70,13 +79,16 @@ export function GainersTab({ existing, onAdd }: Props) {
   const taken = new Set(existing.map((s) => s.toUpperCase()));
   const topPct = gainers[0]?.changePct ?? 100;
 
+  const sourceNote = source ? SOURCE_NOTE[source] : undefined;
+
   return (
     <section className="mt-4">
       <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3">
         <div>
-          <h2 className="text-[15px] font-semibold text-ink-bright">หุ้นปิดบวก % สูงสุด</h2>
+          <h2 className="text-[15px] font-semibold text-ink-bright">หุ้นบวก % สูงสุด</h2>
           <p className="mt-1 text-[11px] leading-relaxed text-ink-dim">
-            ทั้งตลาด US · เรียงตาม % การเปลี่ยนแปลงในช่วงที่เลือก · ตัด warrant / unit / right ออกแล้ว
+            ทั้งตลาด US · เรียงตาม % การเปลี่ยนแปลงย้อนหลังตามช่วงที่เลือก · ตัด warrant / unit /
+            right ออกแล้ว · ช่วงสั้นสุดที่ต้นทางมีคือ 3 นาที
             {fetchedAt &&
               ` · ดึงเมื่อ ${new Date(fetchedAt).toLocaleTimeString('th-TH', {
                 timeZone: 'Asia/Bangkok',
@@ -124,6 +136,12 @@ export function GainersTab({ existing, onAdd }: Props) {
         </div>
       </div>
 
+      {sourceNote && !error && (
+        <p className="mt-3 rounded-md border border-[var(--tv-warn)]/30 bg-[var(--tv-warn-soft)] px-3 py-2 text-[12px] text-warn">
+          {sourceNote}
+        </p>
+      )}
+
       {error && (
         <p className="mt-3 rounded-md border border-[var(--tv-warn)]/30 bg-[var(--tv-warn-soft)] px-3 py-2 text-[12px] text-warn">
           {error}
@@ -137,7 +155,7 @@ export function GainersTab({ existing, onAdd }: Props) {
             <tr className="border-b border-line bg-panel-alt">
               <th className="col-head w-10 px-3 py-2 text-right">#</th>
               <th className="col-head px-3 py-2 text-left">สัญลักษณ์</th>
-              <th className="col-head px-3 py-2 text-right">ราคาปิด</th>
+              <th className="col-head px-3 py-2 text-right">ราคาล่าสุด</th>
               <th className="col-head px-3 py-2 text-right">มูลค่าตลาด</th>
               <th className="col-head px-3 py-2 text-right">
                 % ({PERIOD_OPTIONS.find((o) => o.value === period)?.label})
@@ -214,7 +232,7 @@ export function GainersTab({ existing, onAdd }: Props) {
               </div>
               <div className="mt-2 flex gap-4 text-[11px] text-ink-dim">
                 <span>
-                  ปิด <span className="num ml-1 text-ink">{fmtPrice(g.price)}</span>
+                  ราคา <span className="num ml-1 text-ink">{fmtPrice(g.price)}</span>
                 </span>
                 <span>
                   มูลค่าตลาด <span className="num ml-1 text-ink">{fmtCap(g.marketCap)}</span>

@@ -459,7 +459,7 @@ export default function Page() {
           {(
             [
               ['formula', 'สูตรของฉัน'],
-              ['gainers', 'ปิดบวกสูงสุด'],
+              ['gainers', 'บวกสูงสุด'],
               ['stats', 'สถิติ'],
             ] as const
           ).map(([key, label]) => (
