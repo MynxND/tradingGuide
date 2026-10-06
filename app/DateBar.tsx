@@ -17,8 +17,8 @@ export function DateBar({ date, today, saved, onChange }: Props) {
     .slice(0, 8);
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-line py-2.5">
-      <span className="col-head mr-1">วันซื้อขาย</span>
+    <div className="mt-7 flex flex-wrap items-center gap-2 border-b border-line pb-4">
+      <span className="col-head mr-2">วันซื้อขาย</span>
 
       <div className="flex flex-wrap gap-1">
         {quick.map((d) => {
@@ -32,8 +32,8 @@ export function DateBar({ date, today, saved, onChange }: Props) {
               title={d}
               className={`relative rounded border px-2.5 py-1 text-[12px] transition-colors ${
                 active
-                  ? 'border-accent bg-accent/15 text-ink-bright'
-                  : 'border-line-strong bg-bg text-ink-dim hover:text-ink'
+                  ? 'border-accent bg-accent text-white'
+                  : 'border-line bg-transparent text-ink-dim hover:border-line-strong hover:text-ink'
               }`}
             >
               {d === today ? 'วันนี้' : formatThaiDate(d)}
@@ -52,7 +52,7 @@ export function DateBar({ date, today, saved, onChange }: Props) {
           value={date}
           max={today}
           onChange={(e) => e.target.value && onChange(e.target.value)}
-          className="num h-8 rounded border border-line-strong bg-bg px-2 text-[12px] text-ink outline-none focus:border-accent"
+          className="num h-8 rounded-lg border border-line bg-panel px-2 text-[12px] text-ink outline-none focus:border-accent"
         />
       </label>
     </div>

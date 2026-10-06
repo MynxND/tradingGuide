@@ -119,6 +119,40 @@ pnpm dlx vercel
 ตั้ง environment variables ใน Vercel project settings ให้ครบทั้ง Production / Preview / Development:
 `FINNHUB_API_KEY` และ `TWELVEDATA_API_KEY`
 
+## Access key login (หนึ่งคีย์ต่อหนึ่งเบราว์เซอร์)
+
+ระบบล็อกอินจะ **ปิดเว็บไว้โดยปริยาย** จนกว่าจะตั้งค่าด้านล่างครบ และตรวจทุก API ฝั่ง server
+ไม่ใช่แค่ซ่อนหน้าเว็บ:
+
+1. ตั้ง Upstash Redis: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
+2. สร้างคีย์ครั้งเดียว แล้วเก็บผลลัพธ์ส่วน `KEY` ไว้ส่งให้ลูกค้าอย่างปลอดภัย:
+
+```bash
+pnpm keys:generate 10
+```
+
+3. นำเฉพาะ JSON ที่ขึ้นหลัง `AUTH_KEY_HASHES` ไปตั้ง environment variable ชื่อนี้ใน Vercel
+   (ห้ามอัปโหลดหรือ commit คีย์จริง)
+
+### หน้าผู้ดูแล
+
+ตั้ง `ADMIN_ACCESS_KEY_HASH` เป็น SHA-256 ของ admin key แล้วเข้า `/admin` เพื่อสร้างคีย์ใหม่,
+ตรวจว่าคีย์ใดถูกเปิดใช้แล้ว และปิดสิทธิ์ได้ทันที (session ของคีย์ที่ถูกปิดจะใช้ต่อไม่ได้)
+เช่น สร้าง hash โดยไม่บันทึก admin key ลงไฟล์:
+
+```bash
+node -e "const c=require('crypto'); console.log(c.createHash('sha256').update(process.argv[1]).digest('hex'))" 'ใส่-admin-key-ที่ยาวและสุ่ม'
+```
+
+เมื่อผู้ใช้กรอกคีย์สำเร็จ ระบบจะจอง hash ของคีย์ใน Redis แบบ atomic ทันที จึงมีเพียง
+เบราว์เซอร์แรกที่เปิดใช้ได้ คีย์นั้นจะใช้กับ browser หรือ incognito อื่นไม่ได้อีก และทุก request
+ต้องมีทั้ง httpOnly session cookie กับ browser identifier ที่ตรงกับข้อมูลบน server
+
+ข้อจำกัดตามธรรมชาติของเว็บ: ไม่มีวิธีใดรับประกัน 100% ว่าคนที่ได้รับสิทธิ์จะไม่ถ่ายทอดหน้าจอ,
+ควบคุมเครื่องจากระยะไกล หรือคัดลอกข้อมูล browser โดยเจตนาได้ ระบบนี้ป้องกันการนำ “คีย์” ไปแจกต่อ
+และการใช้คีย์ซ้ำอย่างเข้มงวด; หากต้องการยืนยันว่าเป็นบุคคลเดียวจริง ๆ ควรเพิ่มบัญชีผู้ใช้พร้อม
+WebAuthn/passkey หรือ OTP ของแต่ละคนในขั้นต่อไป
+
 ## State เก็บที่ไหน
 
 ตั้ง `UPSTASH_REDIS_REST_URL` และ `UPSTASH_REDIS_REST_TOKEN` แล้วลิสต์หุ้นแยกวัน เกณฑ์

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getRequestSession, requireAuth, workspaceForSession } from '@/lib/auth';
 import { redisEnabled, redisGet, redisSet, redisSetAdd } from '@/lib/redis';
 import { WORKSPACE_INDEX, safeWorkspace, stateKey } from '@/lib/workspace';
 
@@ -8,7 +9,11 @@ export const dynamic = 'force-dynamic';
 const MAX_BYTES = 512 * 1024;
 
 export async function GET(request: Request) {
-  const workspace = safeWorkspace(new URL(request.url).searchParams.get('w'));
+  const denied = await requireAuth(request);
+  if (denied) return denied;
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: 'กรุณาเข้าสู่ระบบใหม่' }, { status: 401 });
+  const workspace = safeWorkspace(workspaceForSession(session));
   if (!redisEnabled) {
     return NextResponse.json({ state: null, storage: 'local' });
   }
@@ -28,7 +33,11 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const workspace = safeWorkspace(new URL(request.url).searchParams.get('w'));
+  const denied = await requireAuth(request);
+  if (denied) return denied;
+  const session = await getRequestSession(request);
+  if (!session) return NextResponse.json({ error: 'กรุณาเข้าสู่ระบบใหม่' }, { status: 401 });
+  const workspace = safeWorkspace(workspaceForSession(session));
   if (!redisEnabled) {
     return NextResponse.json({ ok: false, storage: 'local' });
   }

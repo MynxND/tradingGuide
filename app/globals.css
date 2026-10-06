@@ -5,17 +5,17 @@
  * ไม่ใช่เขียว/แดงสด เพื่อให้จ้องตัวเลขนาน ๆ ได้ไม่แสบตา
  */
 :root {
-  --tv-bg: #131722;
-  --tv-panel: #1e222d;
-  --tv-panel-alt: #181b26;
-  --tv-hover: #2a2e39;
-  --tv-border: #2a2e39;
-  --tv-border-strong: #363a45;
-  --tv-text: #d1d4dc;
-  --tv-text-bright: #f0f3fa;
-  --tv-text-dim: #787b86;
-  --tv-accent: #2962ff;
-  --tv-accent-hover: #1e53e5;
+  --tv-bg: #060709;
+  --tv-panel: #0d0f14;
+  --tv-panel-alt: #0d0f14;
+  --tv-hover: #151821;
+  --tv-border: #212633;
+  --tv-border-strong: #30364d;
+  --tv-text: #d1d5db;
+  --tv-text-bright: #f3f4f6;
+  --tv-text-dim: #6b7280;
+  --tv-accent: #4f46e5;
+  --tv-accent-hover: #6366f1;
   --tv-up: #26a69a;
   --tv-up-soft: rgba(38, 166, 154, 0.12);
   --tv-down: #ef5350;
@@ -71,9 +71,10 @@ body {
 }
 
 .panel {
-  background: var(--tv-panel);
-  border: 1px solid var(--tv-border);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--tv-panel) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tv-border) 82%, transparent);
+  border-radius: 16px;
+  box-shadow: none;
 }
 
 /** ซ่อน spinner ของ input number ให้ดูเป็นช่องกรอกค่าของเทอร์มินัล */

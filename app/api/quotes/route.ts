@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { getQuotes } from '@/lib/quotes';
 import { toEndMin } from '@/lib/strategy';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
+  const denied = await requireAuth(request);
+  if (denied) return denied;
   const params = new URL(request.url).searchParams;
   const raw = params.get('symbols') ?? '';
   const endMin = toEndMin(params.get('end'));
