@@ -124,7 +124,7 @@ export async function clearSessionCookie() {
 }
 
 function configuredAdminHash() {
-  const value = process.env.ADMIN_ACCESS_KEY_HASH?.trim().toLowerCase();
+  const value = process.env.ADMIN_ACCESS_KEY_HASH?.trim().replace(/^(['"])(.*)\1$/, '$2').trim().toLowerCase();
   return value && /^[a-f0-9]{64}$/.test(value) ? value : null;
 }
 

@@ -3,8 +3,14 @@
  * ถ้าไม่ได้ตั้ง env ไว้ ฟังก์ชันจะคืน null ให้ผู้เรียกไปใช้ทางสำรอง (localStorage)
  */
 
-const url = process.env.UPSTASH_REDIS_REST_URL?.replace(/\/$/, '');
-const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+/**
+ * ช่อง env ของ Vercel เก็บค่าตามที่พิมพ์ทุกตัวอักษร ต่างจาก .env.local ที่ตัด "..." ให้เอง
+ * ถ้าก็อปมาพร้อมเครื่องหมายคำพูด/ช่องว่าง fetch จะพังว่า "Failed to parse URL"
+ */
+const cleanEnv = (v: string | undefined) => v?.trim().replace(/^(['"])(.*)\1$/, '$2').trim() || undefined;
+
+const url = cleanEnv(process.env.UPSTASH_REDIS_REST_URL)?.replace(/\/+$/, '');
+const token = cleanEnv(process.env.UPSTASH_REDIS_REST_TOKEN);
 
 export const redisEnabled = Boolean(url && token);
 
