@@ -27,6 +27,7 @@ import {
   type Decision,
 } from '@/lib/strategy';
 import { CapitalFlowPanel } from './CapitalFlowPanel';
+import { TradingViewChart } from './TradingViewChart';
 import { DateBar } from './DateBar';
 import { ExportButton, type ExportRow } from './ExportButton';
 import { GainersTab } from './GainersTab';
@@ -816,7 +817,7 @@ export function TradingApp() {
                     {expanded.has(r.symbol) && (
                       <tr className="border-b border-line/60">
                         <td colSpan={11} className="p-0">
-                          <CapitalFlowPanel symbol={r.symbol} />
+                          <SymbolDetail symbol={r.symbol} />
                         </td>
                       </tr>
                     )}
@@ -1137,7 +1138,7 @@ function MobileRow({
         )}
       </div>
       </div>
-      {expanded && <CapitalFlowPanel symbol={row.symbol} />}
+      {expanded && <SymbolDetail symbol={row.symbol} />}
     </div>
   );
 }
@@ -1151,5 +1152,17 @@ function Chevron({ open, className = '' }: { open: boolean; className?: string }
     >
       <path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/** แผงที่กางออกจากแถวหุ้น: กราฟราคา + การกระจายคำสั่งซื้อขาย */
+function SymbolDetail({ symbol }: { symbol: string }) {
+  return (
+    <>
+      <div className="border-t border-line/60 bg-bg/60 px-4 pt-4">
+        <TradingViewChart symbol={symbol} />
+      </div>
+      <CapitalFlowPanel symbol={symbol} />
+    </>
   );
 }
