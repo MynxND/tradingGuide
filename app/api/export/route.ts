@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
 import { NextResponse } from 'next/server';
+import { requireAuth } from '@/lib/auth';
 import { DEFAULT_THRESHOLDS, SESSION_START_MIN, etMinuteToViewer, minuteLabel, toEndMin } from '@/lib/strategy';
 
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,8 @@ const headers = (endMin: number) => [
 ];
 
 export async function POST(request: Request) {
+  const denied = await requireAuth(request);
+  if (denied) return denied;
   let body: Body;
   try {
     body = await request.json();

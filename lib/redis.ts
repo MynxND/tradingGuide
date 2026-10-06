@@ -37,6 +37,19 @@ export async function redisSet(key: string, value: string): Promise<void> {
   });
 }
 
+/** เขียนเฉพาะเมื่อ key นี้ยังไม่มีอยู่ ใช้จอง license แบบ atomic */
+export async function redisSetIfAbsent(key: string, value: string): Promise<boolean> {
+  const result = await call<string | null>(
+    `set/${encodeURIComponent(key)}/${encodeURIComponent(value)}/NX`,
+    { method: 'POST' },
+  );
+  return result === 'OK';
+}
+
+export async function redisDelete(key: string): Promise<void> {
+  await call(`del/${encodeURIComponent(key)}`, { method: 'POST' });
+}
+
 /** ใช้เก็บรายชื่อ workspace ที่มีอยู่ เผื่อ cron ต้องวนตรวจทุกอัน */
 export async function redisSetAdd(key: string, member: string): Promise<void> {
   await call(`sadd/${encodeURIComponent(key)}/${encodeURIComponent(member)}`, { method: 'POST' });
@@ -46,3 +59,6 @@ export async function redisSetMembers(key: string): Promise<string[]> {
   return (await call<string[]>(`smembers/${encodeURIComponent(key)}`)) ?? [];
 }
 
+export async function redisSetRemove(key: string, member: string): Promise<void> {
+  await call(`srem/${encodeURIComponent(key)}/${encodeURIComponent(member)}`, { method: 'POST' });
+}

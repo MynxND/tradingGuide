@@ -39,6 +39,9 @@ export type Store = {
   snapshotEndMin: Record<string, number>;
   thresholds: Thresholds;
   onlyOk: boolean;
+  /** กรองจากราคาปลายช่วง หรือราคา live ถ้าช่วงยังไม่จบ */
+  priceRange: { min: number | null; max: number | null };
+  sort: { field: 'default' | 'symbol' | 'open' | 'price' | 'live' | 'high' | 'diff' | 'pct'; direction: 'asc' | 'desc' };
   /** บันทึกผลจริง คีย์เป็น "YYYY-MM-DD:SYMBOL" */
   journal: Record<string, JournalEntry>;
 };
@@ -55,6 +58,8 @@ export function emptyStore(today: string): Store {
     snapshotEndMin: {},
     thresholds: { ...DEFAULT_THRESHOLDS },
     onlyOk: false,
+    priceRange: { min: null, max: null },
+    sort: { field: 'default', direction: 'desc' },
     journal: {},
   };
 }
@@ -78,6 +83,13 @@ export function loadStore(today: string): Store {
         snapshotEndMin: parsed.snapshotEndMin ?? {},
         thresholds: parsed.thresholds ?? base.thresholds,
         onlyOk: typeof parsed.onlyOk === 'boolean' ? parsed.onlyOk : false,
+        priceRange: {
+          min: typeof parsed.priceRange?.min === 'number' ? parsed.priceRange.min : null,
+          max: typeof parsed.priceRange?.max === 'number' ? parsed.priceRange.max : null,
+        },
+        sort: parsed.sort && ['default', 'symbol', 'open', 'price', 'live', 'high', 'diff', 'pct'].includes(parsed.sort.field ?? '') && ['asc', 'desc'].includes(parsed.sort.direction ?? '')
+          ? parsed.sort
+          : base.sort,
         journal: parsed.journal ?? {},
       };
     }
@@ -97,6 +109,8 @@ export function loadStore(today: string): Store {
         snapshotEndMin: {},
         thresholds: old.thresholds ?? base.thresholds,
         onlyOk: old.onlyOk ?? false,
+        priceRange: base.priceRange,
+        sort: base.sort,
         journal: {},
       };
     }
@@ -125,6 +139,13 @@ export function normalizeStore(raw: unknown, today: string): Store | null {
     snapshotEndMin: r.snapshotEndMin ?? {},
     thresholds: r.thresholds ?? base.thresholds,
     onlyOk: typeof r.onlyOk === 'boolean' ? r.onlyOk : false,
+    priceRange: {
+      min: typeof r.priceRange?.min === 'number' ? r.priceRange.min : null,
+      max: typeof r.priceRange?.max === 'number' ? r.priceRange.max : null,
+    },
+    sort: r.sort && ['default', 'symbol', 'open', 'price', 'live', 'high', 'diff', 'pct'].includes(r.sort.field ?? '') && ['asc', 'desc'].includes(r.sort.direction ?? '')
+      ? r.sort
+      : base.sort,
     journal: r.journal ?? {},
   };
 }

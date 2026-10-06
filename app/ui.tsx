@@ -42,9 +42,9 @@ export function QuoteStat({
 }) {
   const color = tone === 'up' ? 'text-up' : tone === 'accent' ? 'text-ink-bright' : 'text-ink';
   return (
-    <div className="flex min-w-0 flex-col justify-center py-2.5 sm:px-4 sm:first:pl-0">
+    <div className="flex min-w-0 flex-col justify-center border-l border-line py-2 pl-4 first:border-l-0 first:pl-0">
       <span className="col-head truncate">{label}</span>
-      <span className={`num mt-1 text-[17px] font-semibold leading-none ${color}`}>{value}</span>
+      <span className={`num mt-2 text-[20px] font-semibold leading-none ${color}`}>{value}</span>
     </div>
   );
 }
